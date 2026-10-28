@@ -8,8 +8,8 @@
 
   function HtmlDeck() {
     this.slides = [];
-    this.ShapeType = { roundRect: 'roundRect', rect: 'rect' };
-    this.ChartType = { bar: 'bar' };
+    this.ShapeType = { roundRect: 'roundRect', rect: 'rect', line: 'line' };
+    this.ChartType = { bar: 'bar', doughnut: 'doughnut' };
     this.layout = 'LAYOUT_WIDE';
   }
   HtmlDeck.prototype.addSlide = function () {
@@ -72,6 +72,12 @@
 
   function drawShape(e) {
     var o = e.o, el = document.createElement('div');
+    if (e.type === 'line') {
+      box(el, { x: o.x, y: o.y, w: Math.max(o.w, 0.01), h: Math.max(o.h, 0.01) });
+      var lw = Math.max(((o.line && o.line.width) || 1) * PT, 1) + 'px solid ' + col(o.line && o.line.color, '#ccc');
+      if (!o.w) { el.style.width = '0'; el.style.borderLeft = lw; } else { el.style.height = '0'; el.style.borderTop = lw; }
+      return el;
+    }
     box(el, o);
     el.style.background = o.fill ? col(o.fill.color) : 'transparent';
     if (o.line && o.line.width) el.style.border = Math.max(o.line.width * PT, 1) + 'px solid ' + col(o.line.color);
@@ -96,7 +102,8 @@
     var body = document.createElement('tbody');
     e.rows.forEach(function (row) {
       var tr = document.createElement('tr');
-      tr.style.height = (o.rowH ? o.rowH * PX : 30) + 'px';
+      var rh = Array.isArray(o.rowH) ? o.rowH[body.children.length] : o.rowH;
+      tr.style.height = (rh ? rh * PX : 30) + 'px';
       row.forEach(function (cell) {
         var c = typeof cell === 'object' && cell !== null ? cell : { text: String(cell) };
         var co = c.options || {}, td = document.createElement('td');
@@ -107,7 +114,8 @@
         td.style.border = bd;
         td.style.padding = m[0] * PT + 'px ' + m[1] * PT + 'px ' + m[2] * PT + 'px ' + m[3] * PT + 'px';
         td.style.textAlign = co.align || 'left';
-        td.style.verticalAlign = co.valign === 'middle' ? 'middle' : (co.valign || 'top');
+        var va = co.valign || o.valign;
+        td.style.verticalAlign = va === 'middle' ? 'middle' : (va || 'top');
         td.style.background = co.fill ? col(co.fill.color) : 'transparent';
         td.style.color = col(co.color, '#000');
         if (co.bold) td.style.fontWeight = '700';
@@ -121,36 +129,86 @@
     return el;
   }
 
+  var NS = 'http://www.w3.org/2000/svg';
+  function svgEl(tag, at) { var e = document.createElementNS(NS, tag); Object.keys(at).forEach(function (k) { e.setAttribute(k, at[k]); }); return e; }
+  function svgText(svg, x, y, t, o) {
+    var e = svgEl('text', { x: x, y: y, 'text-anchor': o.anchor || 'middle', 'dominant-baseline': o.base || 'middle', 'font-size': o.size || 10, fill: o.fill || '#241338', 'font-family': 'Montserrat, system-ui, sans-serif', 'font-weight': o.bold ? 700 : 400 });
+    e.textContent = t; svg.appendChild(e); return e;
+  }
+  function legendHtml(el, names, colors, o, pos) {
+    var lg = document.createElement('div');
+    lg.style.cssText = 'position:absolute;display:flex;gap:4px 12px;flex-wrap:wrap;font-family:Montserrat,system-ui,sans-serif;color:#241338;' +
+      (pos === 'r' ? 'right:0;top:0;bottom:0;width:120px;flex-direction:column;justify-content:center;' : 'left:0;right:0;bottom:0;height:22px;justify-content:center;align-items:center;');
+    lg.style.fontSize = (o.legendFontSize || 9) * PT + 'px';
+    names.forEach(function (n, i) { var s = document.createElement('span'); s.innerHTML = '<i style="display:inline-block;width:9px;height:9px;margin-right:5px;background:' + colors[i % colors.length] + '"></i>'; s.appendChild(document.createTextNode(n)); lg.appendChild(s); });
+    el.appendChild(lg);
+  }
   function drawChart(e) {
-    var o = e.o, el = document.createElement('div'), d = e.data[0] || { labels: [], values: [] };
+    var o = e.o, el = document.createElement('div');
     box(el, o);
-    var W = o.w * PX, H = o.h * PX, n = d.labels.length || 1;
-    var max = Math.max.apply(null, d.values.concat([1]));
-    var labH = 38, topPad = 22, plotH = H - labH - topPad;
-    var slot = W / n, bw = slot * (1 - (o.barGapWidthPct || 60) / 100 / (1 + (o.barGapWidthPct || 60) / 100));
-    var color = col((o.chartColors || ['440099'])[0]);
-    var ns = 'http://www.w3.org/2000/svg', svg = document.createElementNS(ns, 'svg');
-    svg.setAttribute('width', W); svg.setAttribute('height', H); svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
-    d.labels.forEach(function (lab, i) {
-      var v = d.values[i], h = plotH * v / max, x = i * slot + (slot - bw) / 2, y = topPad + plotH - h;
-      var r = document.createElementNS(ns, 'rect');
-      r.setAttribute('x', x); r.setAttribute('y', y); r.setAttribute('width', bw); r.setAttribute('height', Math.max(h, 1)); r.setAttribute('fill', color);
-      svg.appendChild(r);
-      if (o.showValue) {
-        var t = document.createElementNS(ns, 'text');
-        t.setAttribute('x', x + bw / 2); t.setAttribute('y', y - 6); t.setAttribute('text-anchor', 'middle');
-        t.setAttribute('font-size', (o.dataLabelFontSize || 9) * PT); t.setAttribute('fill', col(o.dataLabelColor, '#241338'));
-        t.setAttribute('font-family', 'Montserrat, system-ui, sans-serif'); t.textContent = v;
-        svg.appendChild(t);
-      }
-    });
+    var W = o.w * PX, H = o.h * PX, colors = (o.chartColors || ['440099']).map(function (c) { return col(c); });
+    var legPos = o.showLegend ? (o.legendPos || 'b') : null;
+    var plotW = W - (legPos === 'r' ? 125 : 0), plotH = H - (legPos === 'b' ? 26 : 0);
+    var svg = svgEl('svg', { width: plotW, height: plotH, viewBox: '0 0 ' + plotW + ' ' + plotH });
+    svg.style.position = 'absolute'; svg.style.left = '0'; svg.style.top = '0';
+    var series = e.data, labels = (series[0] || {}).labels || [];
+    var lblSize = (o.dataLabelFontSize || 9) * PT, lblColor = col(o.dataLabelColor, '#241338'), catSize = (o.catAxisLabelFontSize || 9) * PT;
+
+    if (e.type === 'doughnut') {
+      var vals = series[0].values, tot = vals.reduce(function (a, b) { return a + b; }, 0) || 1;
+      var R = Math.min(plotW, plotH) / 2 - 6, r = R * (o.holeSize || 50) / 100, cx = plotW / 2, cy = plotH / 2, a0 = -Math.PI / 2;
+      vals.forEach(function (v, i) {
+        var f = v / tot; if (f <= 0) return;
+        var a1 = a0 + f * 2 * Math.PI, lg = f > 0.5 ? 1 : 0, c = colors[i % colors.length];
+        if (f > 0.9999) { svg.appendChild(svgEl('circle', { cx: cx, cy: cy, r: (R + r) / 2, fill: 'none', stroke: c, 'stroke-width': R - r })); }
+        else svg.appendChild(svgEl('path', { d: 'M' + (cx + R * Math.cos(a0)) + ',' + (cy + R * Math.sin(a0)) + ' A' + R + ',' + R + ' 0 ' + lg + ' 1 ' + (cx + R * Math.cos(a1)) + ',' + (cy + R * Math.sin(a1)) + ' L' + (cx + r * Math.cos(a1)) + ',' + (cy + r * Math.sin(a1)) + ' A' + r + ',' + r + ' 0 ' + lg + ' 0 ' + (cx + r * Math.cos(a0)) + ',' + (cy + r * Math.sin(a0)) + ' Z', fill: c, stroke: '#fff', 'stroke-width': 1.5 }));
+        if (o.showPercent || o.showValue) { var am = (a0 + a1) / 2, rm = (R + r) / 2; svgText(svg, cx + rm * Math.cos(am), cy + rm * Math.sin(am), o.showPercent ? Math.round(f * 100) + '%' : v, { size: lblSize, fill: lblColor, bold: o.dataLabelFontBold }); }
+        a0 = a1;
+      });
+      el.appendChild(svg);
+      if (legPos) legendHtml(el, labels, colors, o, legPos);
+      return el;
+    }
+
+    var horiz = o.barDir === 'bar', grouping = o.barGrouping || 'clustered', n = labels.length || 1, ns = series.length;
+    var stacked = grouping === 'stacked' || grouping === 'percentStacked';
+    var totals = labels.map(function (_, i) { return series.reduce(function (a, s) { return a + (s.values[i] || 0); }, 0); });
+    var max = grouping === 'percentStacked' ? 1 : (stacked ? Math.max.apply(null, totals.concat([1])) : Math.max.apply(null, series.reduce(function (a, s) { return a.concat(s.values); }, [1])));
+    var gap = (o.barGapWidthPct != null ? o.barGapWidthPct : 100) / 100;
+    if (horiz) {
+      var labW = o.catAxisHidden ? 0 : Math.min(plotW * 0.36, 150), valPad = o.dataLabelPosition === 'outEnd' ? 34 : 6, areaW = plotW - labW - valPad;
+      var slot = plotH / n, band = slot / (1 + gap), bh = stacked ? band : band / ns;
+      labels.forEach(function (lab, i) {
+        var y0 = i * slot + (slot - band) / 2;
+        if (!o.catAxisHidden) svgText(svg, labW - 6, y0 + band / 2, lab, { anchor: 'end', size: catSize, fill: col(o.catAxisLabelColor, '#241338') });
+        var acc = 0;
+        series.forEach(function (s, si) {
+          var v = s.values[i] || 0, val = grouping === 'percentStacked' ? (totals[i] ? v / totals[i] : 0) : v, w = areaW * val / max;
+          var x = labW + (stacked ? areaW * acc / max : 0), y = stacked ? y0 : y0 + si * bh;
+          svg.appendChild(svgEl('rect', { x: x, y: y, width: Math.max(w, v ? 1 : 0), height: bh - (stacked ? 0 : 1), fill: colors[si % colors.length] }));
+          if (o.showValue && v) {
+            if (o.dataLabelPosition === 'outEnd' && !stacked) svgText(svg, x + w + 4, y + bh / 2, v, { anchor: 'start', size: lblSize, fill: lblColor });
+            else if (w > 14) svgText(svg, x + w / 2, y + bh / 2, v, { size: lblSize, fill: lblColor });
+          }
+          acc += val;
+        });
+      });
+    } else {
+      var labH = 34, top = 16, areaH = plotH - labH - top, slotW = plotW / n, bandW = slotW / (1 + gap), bw = stacked ? bandW : bandW / ns;
+      labels.forEach(function (lab, i) {
+        var x0 = i * slotW + (slotW - bandW) / 2, acc = 0;
+        series.forEach(function (s, si) {
+          var v = s.values[i] || 0, h = areaH * v / max, x = stacked ? x0 : x0 + si * bw, y = top + areaH - h - (stacked ? areaH * acc / max : 0);
+          svg.appendChild(svgEl('rect', { x: x, y: y, width: bw - (stacked ? 0 : 2), height: Math.max(h, 0), fill: colors[si % colors.length] }));
+          if (o.showValue) svgText(svg, x + (bw - 2) / 2, y - 7, v, { size: lblSize, fill: lblColor });
+          acc += v;
+        });
+        if (!o.catAxisHidden) svgText(svg, i * slotW + slotW / 2, top + areaH + 12, lab, { size: catSize, fill: col(o.catAxisLabelColor, '#241338') });
+      });
+      svg.appendChild(svgEl('line', { x1: 0, x2: plotW, y1: top + areaH, y2: top + areaH, stroke: '#D9CCEC' }));
+    }
     el.appendChild(svg);
-    var labs = document.createElement('div');
-    labs.style.cssText = 'position:absolute;left:0;right:0;bottom:0;height:' + labH + 'px;display:flex;font-family:Montserrat,system-ui,sans-serif;line-height:1.1;text-align:center;';
-    labs.style.fontSize = (o.catAxisLabelFontSize || 8) * PT + 'px';
-    labs.style.color = col(o.catAxisLabelColor, '#6B5F80');
-    d.labels.forEach(function (lab) { var s = document.createElement('div'); s.style.flex = '1'; s.style.padding = '2px'; s.textContent = lab; labs.appendChild(s); });
-    el.appendChild(labs);
+    if (legPos) legendHtml(el, series.map(function (s) { return s.name; }), colors, o, legPos);
     return el;
   }
 

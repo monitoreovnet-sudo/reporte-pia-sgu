@@ -205,3 +205,18 @@ table.list td, table.list th { text-align: left; }
 .busy div { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 18px 22px; font-weight: 600; box-shadow: 0 6px 24px rgba(0, 0, 0, .12); }
 .offscreen { position: absolute; left: 0; top: 0; z-index: -1; pointer-events: none; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+
+/* ---------- v2: chips de grupo, tarjetas partidas, selector de comparación ---------- */
+.gchip { display: inline-block; padding: 1px 8px; border-radius: 99px; color: #fff; font-size: 10.5px; font-weight: 700; line-height: 1.6; vertical-align: middle; white-space: nowrap; }
+.halves { display: grid; grid-template-columns: 1fr 1fr; }
+.half { display: grid; gap: 4px; align-content: start; padding-right: 10px; min-width: 0; }
+.half + .half { border-left: 1px solid #e4daf2; padding-left: 12px; padding-right: 0; }
+.half .v { font-size: 24px; }
+.half > .gchip { justify-self: start; }
+.half .v small { font-size: 11px; }
+.seg { display: inline-flex; flex-wrap: wrap; gap: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: #fff; justify-self: start; }
+.seg button { border: 0; background: #fff; padding: 7px 14px; font-size: 12.5px; font-weight: 600; color: var(--muted); border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--brand); color: #fff; }
+.tabs .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--hot); vertical-align: 1px; margin-left: 4px; }
+.viz > .tbl { max-height: none; }
