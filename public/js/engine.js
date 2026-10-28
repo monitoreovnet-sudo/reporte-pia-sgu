@@ -26,19 +26,10 @@
       'FTTH > Sin conexión',
       'FTTH > Visita técnica'
     ],
-    grupos: [
-      'ATC No Presencial',
-      'Cobranzas Masivas',
-      'Contratista San Agustín',
-      'Tesoreria Masivos',
-      'COR · Coordinación de reparación Técnico FTTX · ATC Presencial',
-      'COR · UDN-CARACAS · Activaciones',
-      'COR · UDN-CARACAS · Cobranzas Masivas',
-      'COR · UDN-CARACAS · Cobranzas Masivas · Activaciones',
-      'COR · UDN-CARACAS · Coordinación de reparación Técnico FTTX',
-      'Soporte Aplicaciones · Cobranzas Masivas'
-    ],
-    gruposNegrita: ['ATC No Presencial', 'Cobranzas Masivas', 'Contratista San Agustín', 'Tesoreria Masivos']
+    grupos: ['ATC No Presencial', 'Cobranzas Masivas (+)', 'Contratista San Agustín (+)', 'Tesoreria Masivos', 'Reparación (+)', 'Activaciones (+)', 'UDN Caracas (+)', 'COR (+)'],
+    /** Categorías FTTH que NO cuentan para reincidencias (se cambia desde el filtro del Informe). */
+    reincExcluir: ['Cobranzas Masivas > FTTH > Ajuste de facturación', 'Cobranzas Masivas > FTTH > Reembolso', 'FTTH > Cambio de plan'],
+    gruposNegrita: ['ATC No Presencial', 'Cobranzas Masivas (+)', 'Contratista San Agustín (+)', 'Tesoreria Masivos']
   };
 
   var GRUPOS = ['pia', 'otras', 'sgu', 'pais'];
@@ -59,7 +50,25 @@
   /** Categoría homologada: quita ">" o "<" sobrantes al final. */
   function homologar(c) { return String(c == null ? '' : c).trim().replace(/\s*[<>]+\s*$/, ''); }
   /** Grupo técnico: líneas unidas con " · " (valor exacto del campo). */
-  function grpLabel(g) { return String(g == null ? '' : g).split(/\r?\n|<br\s*\/?>|\s+[·+]\s+/i).map(function (x) { return x.trim(); }).filter(Boolean).join(' · '); }
+  function grpLineas(g) { return String(g == null ? '' : g).split(/\r?\n|<br\s*\/?>|\s+[·+]\s+/i).map(function (x) { return x.trim(); }).filter(Boolean); }
+  /** Unificación de grupos técnicos, en este orden (gana la primera regla que aplica):
+   *  1) termina en "Cobranzas Masivas" → "Cobranzas Masivas (+)"   2) dice "reparación" → "Reparación (+)"
+   *  3) dice "activaciones" → "Activaciones (+)"   4) dice "UDN Caracas" → "UDN Caracas (+)"   5) dice "COR" → "COR (+)"
+   *  6) dice "Contratista San Agustín" → "Contratista San Agustín (+)"
+   *  El "(+)" indica que el grupo reúne varios grupos de GLPI: participó en la solución, no necesariamente solo.
+   *  Lo demás queda con su nombre (varias líneas unidas con " · "). */
+  function grpLabel(g) {
+    var lin = grpLineas(g);
+    if (!lin.length) return '';
+    var k = hkey(lin.join(' ')), last = hkey(lin[lin.length - 1]);
+    if (/(^| )cobranzas masivas$/.test(last)) return 'Cobranzas Masivas (+)';
+    if (/(^| )reparacion( |$)/.test(k)) return 'Reparación (+)';
+    if (/(^| )activaciones( |$)/.test(k)) return 'Activaciones (+)';
+    if (/(^| )udn caracas( |$)/.test(k)) return 'UDN Caracas (+)';
+    if (/(^| )cor( |$)/.test(k)) return 'COR (+)';
+    if (/(^| )contratista san agustin( |$)/.test(k)) return 'Contratista San Agustín (+)';
+    return lin.join(' · ');
+  }
   function grpKey(g) { return norm(grpLabel(g)); }
   function catCorta(c) { return String(c).replace(/^Cobranzas Masivas > FTTH > /i, '').replace(/^FTTH > /i, ''); }
   function soloDigitos(v) {
@@ -287,7 +296,10 @@
     var mesIni = serialFromParts(fp.y, fp.mo, 1), mesFin = fp.mo === 12 ? serialFromParts(fp.y + 1, 1, 1) : serialFromParts(fp.y, fp.mo + 1, 1);
     var wIni = fdDay - 8, wFin = fdDay; // ventana: [FD-8, FD-1] completos
     var marker = norm(cfg.sguMarker);
-    var catKeys = cfg.categorias.map(norm), grpKeys = cfg.grupos.map(grpKey);
+    var catKeys = cfg.categorias.map(norm);
+    var grpKeys = [], gruposU = [];
+    cfg.grupos.forEach(function (g) { var k = grpKey(g); if (k && grpKeys.indexOf(k) < 0) { grpKeys.push(k); gruposU.push(grpLabel(g)); } });
+    var reincFuera = (cfg.reincExcluir || []).map(function (c) { return norm(homologar(c)); });
     var controles = {};
 
     /* --- GLPI del período --- */
@@ -380,7 +392,7 @@
 
     /* --- reincidencia FTTH --- */
     function reincidencia(L) {
-      var ftth = L.filter(function (t) { return t.catK.indexOf('ftth') >= 0; });
+      var ftth = L.filter(function (t) { return t.catK.indexOf('ftth') >= 0 && reincFuera.indexOf(t.catK) < 0; });
       var porCuenta = {}, orden = [];
       ftth.forEach(function (t) {
         if (!t.cuenta) return;
@@ -445,7 +457,7 @@
       return filas;
     }
     var tiempoCategoria = tablaTiempo('catK', cfg.categorias, catKeys);
-    var tiempoGrupo = tablaTiempo('grpK', cfg.grupos, grpKeys);
+    var tiempoGrupo = tablaTiempo('grpK', gruposU, grpKeys);
 
     /* --- tabla 5.3 --- */
     function cr(L) { return { creados: L.length, solucionados: L.filter(function (t) { return t.res; }).length }; }
@@ -458,6 +470,33 @@
     var totP = { label: 'Total', total: true };
     GRUPOS.forEach(function (g) { totP[g] = cr(porGrupo[g].lista); });
     productividad.push(totP);
+
+    /* --- desglose de "Otro" (solo grupos SGU: PIA, otras unidades, SGU total) --- */
+    function desglose(campo, claves, labelDe, tipo) {
+      var out = {};
+      ['pia', 'otras', 'sgu'].forEach(function (g) {
+        var L = porGrupo[g].lista.filter(function (t) { return claves.indexOf(t[campo]) < 0; });
+        var orden = [], por = {};
+        L.forEach(function (t) { var k = t[campo]; if (!por[k]) { por[k] = { label: labelDe(t) || (campo === 'grpK' ? 'Sin grupo asignado' : 'Sin categoría'), lista: [] }; orden.push(k); } por[k].lista.push(t); });
+        var filas = orden.map(function (k) {
+          var x = por[k], row = { label: x.label };
+          if (tipo === 'tiempo') { row.v = modaPromedio(x.lista.filter(function (t) { return t.res && t.dur !== null; }).map(function (t) { return t.dur; })); row.v.texto = celdaTiempo(row.v); row.orden = row.v.n; }
+          else { row.v = cr(x.lista); row.orden = row.v.creados; }
+          return row;
+        }).filter(function (r) { return tipo === 'tiempo' ? r.v.n > 0 : r.v.creados > 0; });
+        filas.sort(function (a, b) { return b.orden - a.orden || a.label.localeCompare(b.label, 'es'); });
+        var tot = { label: 'Total "Otro"', total: true };
+        if (tipo === 'tiempo') { tot.v = modaPromedio(L.filter(function (t) { return t.res && t.dur !== null; }).map(function (t) { return t.dur; })); tot.v.texto = celdaTiempo(tot.v, true); }
+        else tot.v = cr(L);
+        out[g] = { filas: filas, total: tot };
+      });
+      return out;
+    }
+    var otros = {
+      tiempoCategoria: desglose('catK', catKeys, function (t) { return t.cat; }, 'tiempo'),
+      productividad: desglose('catK', catKeys, function (t) { return t.cat; }, 'prod'),
+      tiempoGrupo: desglose('grpK', grpKeys, function (t) { return t.grpL; }, 'tiempo')
+    };
 
     /* --- comparativos --- */
     function comparar(a, b) {
@@ -514,10 +553,11 @@
     }
 
     /* --- opciones de filtros --- */
-    var oc = {}, og = {};
+    var oc = {}, og = {}, of = {};
     T.forEach(function (t) {
       var c = oc[t.catK] || (oc[t.catK] = { label: t.cat || '(Sin categoría)', key: t.catK, sgu: 0, total: 0 }); c.total++; if (t.sgu) c.sgu++;
       var g = og[t.grpK] || (og[t.grpK] = { label: t.grpL || '(Sin grupo)', key: t.grpK, sgu: 0, total: 0 }); g.total++; if (t.sgu) g.sgu++;
+      if (t.catK.indexOf('ftth') >= 0) { var f = of[t.catK] || (of[t.catK] = { label: t.cat, key: t.catK, sgu: 0, total: 0 }); f.total++; if (t.sgu) f.sgu++; }
     });
     function lista(o) { return Object.keys(o).map(function (k) { return o[k]; }).filter(function (x) { return x.key; }).sort(function (a, b) { return b.sgu - a.sgu || b.total - a.total || a.label.localeCompare(b.label); }); }
 
@@ -541,12 +581,13 @@
       ventana: { desde: fmtDate(wIni), hasta: fmtDate(wFin - 1), corta: partsFromSerial(wIni).d + '–' + fmtDM(wFin - 1) },
       etiquetas: ETIQUETAS, etiquetasLargas: ETIQUETAS_LARGAS,
       fijos: fijos, g: resumenGrupos, comparativos: comparativos,
-      tiempoCategoria: tiempoCategoria, tiempoGrupo: tiempoGrupo, productividad: productividad,
+      tiempoCategoria: tiempoCategoria, tiempoGrupo: tiempoGrupo, productividad: productividad, otros: otros,
       reincidencia: porGrupo.sgu.reinc,
       brechas: brechas,
       controles: controles,
       volumen: { glpi: T.length, tipSA: tipSA.length, tipMes: tipMes.length },
-      opciones: { categorias: lista(oc), grupos: lista(og) }
+      opciones: { categorias: lista(oc), grupos: lista(og), ftth: lista(of) },
+      reincExcluidas: (cfg.reincExcluir || []).map(homologar)
     };
   }
 

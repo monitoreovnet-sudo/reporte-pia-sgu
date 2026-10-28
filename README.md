@@ -7,7 +7,7 @@ Se publica en **Cloudflare Pages** con una base de datos **D1**, igual que la ap
 |---|---|
 | **Repositorio** | Subir GLPI + Tipificador + fecha y hora de descarga. Las cargas quedan guardadas para todos los usuarios. |
 | **Informe** | Tablero estilo Power BI con 9 páginas (indicadores, tablas 5.1 a 5.7, upgrades y controles de calidad) y panel de filtros. Descarga en **PDF** y **Excel**. |
-| **Presentación** | 17 láminas (portada + 16) con el diseño VNET, tablas y gráficos nativos. Visor con miniaturas y modo Presentar. Descarga en **PowerPoint (.pptx)** y **PDF**. |
+| **Presentación** | Dos presentaciones: **PIA vs. SGU** (14 láminas) y **SGU vs. País** (13 láminas), con el diseño VNET, tablas y gráficos nativos y el desglose de "Otro" después de cada tabla. Visor con miniaturas y modo Presentar. Cada una se descarga en **PowerPoint (.pptx)** y **PDF**. |
 | **Administración** | Solo administradores: ver y cambiar la contraseña, agregar o quitar correos, parámetros de cálculo. |
 
 ## Acceso
@@ -59,7 +59,8 @@ Implementa la especificación de octubre 2026 (`prompt_reporte_pia_sgu.md`):
 - **Período:** GLPI por fecha de apertura del día 1 a la fecha de descarga; Tipificador solo del mes.
 - **Semana:** los 8 días anteriores a la fecha de descarga.
 - **Tiempos:** "moda o promedio" (moda redondeada a la hora, con 2 o más repeticiones).
-- **Reincidencia FTTH:** por número de cuenta del título, dentro de cada grupo.
+- **Reincidencia FTTH:** por número de cuenta del título, dentro de cada grupo. Por defecto no cuentan ajuste de facturación, reembolso ni cambio de plan; se cambia con el filtro "Problemas de reincidencia" del Informe.
+- **Grupos técnicos unificados**, en este orden: termina en Cobranzas Masivas → Cobranzas Masivas (+); dice reparación → Reparación (+); activaciones → Activaciones (+); UDN Caracas → UDN Caracas (+); COR → COR (+); Contratista San Agustín → Contratista San Agustín (+). El (+) indica que el grupo reúne varios grupos de GLPI. Los grupos que se agregan desde el filtro pasan por las mismas reglas.
 - **Upgrades y SVA:** aumentos de plan leídos de la descripción; las disminuciones y los cambios revertidos no cuentan.
 - **Controles de calidad:** se muestran en el Informe y en la hoja "Controles" del Excel.
 - Cada carga guarda en D1 un resumen de indicadores; el Repositorio muestra el **histórico de cortes**.
@@ -73,10 +74,10 @@ npm install xlsx
 node tests/aceptacion-octubre.js "Indicadores_SGU_vs_Pais_28-10-2026.xlsx"
 ```
 
-Compara 60 valores con los resultados esperados de octubre. El archivo de datos no se guarda en el repositorio.
+Compara 60 valores con los resultados esperados de octubre (con todas las categorías FTTH en reincidencia, como se calculó la sección 9) y muestra la reincidencia con la regla vigente. El archivo de datos no se guarda en el repositorio.
 
 ## Notas
 
 - Los archivos de GLPI y del Tipificador se leen en el navegador. Al servidor solo llega una copia comprimida de las columnas que usa el informe.
-- Los filtros (categorías y grupos técnicos) se guardan para todos los usuarios.
+- Los filtros (categorías, grupos técnicos y problemas de reincidencia) se guardan para todos los usuarios.
 - El lector de Excel, la exportación a PDF y las fuentes se cargan desde cdnjs.cloudflare.com y Google Fonts.

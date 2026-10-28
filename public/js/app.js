@@ -82,7 +82,7 @@
 
   /* ================= configuración de cálculo ================= */
   function defaultsFiltros() {
-    return { categorias: E.DEFAULTS.categorias.slice(), grupos: E.DEFAULTS.grupos.slice(),
+    return { version: 4, categorias: E.DEFAULTS.categorias.slice(), grupos: E.DEFAULTS.grupos.slice(), reincExcluir: E.DEFAULTS.reincExcluir.slice(),
       sucursal: E.DEFAULTS.sucursal, sguMarker: E.DEFAULTS.sguMarker, piaSolicitante: E.DEFAULTS.piaSolicitante };
   }
   function filtros() { return Object.assign(defaultsFiltros(), S.filtros || {}); }
@@ -324,8 +324,17 @@
   /* ================= informe (estilo Power BI) ================= */
   var FILTROS = [
     { id: 'categorias', kind: 'categorias', title: 'Categorías', noun: 'categorías', note: 'Aplica a tiempos por categoría y productividad. Las no seleccionadas se suman en "Otro".' },
-    { id: 'grupos', kind: 'grupos', title: 'Grupos técnicos', noun: 'grupos', note: 'Aplica a tiempos por grupo técnico. Los no seleccionados se suman en "Otro".' }
+    { id: 'grupos', kind: 'grupos', title: 'Grupos técnicos', noun: 'grupos', note: 'Aplica a tiempos por grupo técnico. Los no seleccionados se suman en "Otro". Los grupos se unifican: termina en Cobranzas Masivas → Cobranzas Masivas (+); dice reparación → Reparación (+); activaciones → Activaciones (+); UDN Caracas → UDN Caracas (+); COR → COR (+); Contratista San Agustín → Contratista San Agustín (+). El (+) indica que el grupo reúne varios grupos de GLPI que participaron en la solución.' },
+    { id: 'reincExcluir', kind: 'ftth', invert: true, title: 'Problemas de reincidencia', noun: 'categorías FTTH', note: 'Marcadas: cuentan para reincidencia. Desmarcadas: no cuentan (por defecto facturación, reembolso y cambio de plan).' }
   ];
+  function keyerDe(d) { return d.kind === 'grupos' ? E.grpKey : E.norm; }
+  /** Claves marcadas en el filtro (para el de reincidencia: las categorías que SÍ cuentan). */
+  function marcadas(d, R, lista) {
+    var k = keyerDe(d);
+    if (!d.invert) return lista.map(k).filter(function (x, i, a) { return a.indexOf(x) === i; });
+    var fuera = lista.map(k);
+    return filterOptions(d, R).map(function (o) { return o.key; }).filter(function (x) { return fuera.indexOf(x) < 0; });
+  }
   var PAGINAS = ['Indicadores', 'Tiempos por categoría', 'Grupos técnicos', 'Productividad', 'Reincidencias', 'Semana', 'Mismo día', 'Upgrades y SVA', 'Controles'];
   var CMPS = [['pia', 'otras', 'pia_otras', 'PIA vs. SGU'], ['sgu', 'pais', 'sgu_pais', 'SGU vs. país'], ['pia', 'pais', 'pia_pais', 'PIA vs. país']];
   var GCOL = { pia: '#CC04FF', otras: '#440099', sgu: '#440099', pais: '#241338' };
@@ -387,9 +396,9 @@
         tile('c12', 'Tickets creados por categoría', 'PIA y SGU otras unidades', C.hbars({ title: 'Creados por categoría', labels: ps.map(function (r) { return E.catCorta(r.label); }), labelW: 220, series: [{ name: 'PIA', color: COLORS.hot, values: ps.map(function (r) { return r.pia.creados; }) }, { name: 'SGU otras unidades', color: COLORS.brand, values: ps.map(function (r) { return r.otras.creados; }) }], fmt: num }));
     } else if (i === 4) {
       var RI = R.reincidencia, rc = Object.keys(RI.porCategoria).sort(function (x, y) { return RI.porCategoria[y] - RI.porCategoria[x]; });
-      body = GS.map(function (g) { var x = G[g].reinc; return '<div class="viz card c3"><div class="t">Reincidencia ' + chipH(g) + '</div><div class="v">' + num(x.abonados) + '<small>abonados</small></div><div class="n">' + num(x.tickets) + ' tickets · ' + pct(x.pct) + ' de ' + num(x.ftth) + ' FTTH</div></div>'; }).join('') +
+      body = GS.map(function (g) { var x = G[g].reinc; return '<div class="viz card c3"><div class="t">Reincidencia FTTH ' + chipH(g) + '</div><div class="v">' + num(x.abonados) + '<small>abonados</small></div><div class="n">' + num(x.tickets) + ' tickets · ' + pct(x.pct) + ' de ' + num(x.ftth) + ' FTTH</div></div>'; }).join('') +
         tile('c5', 'Categorías de los tickets reincidentes', 'SGU total', rc.length ? C.hbars({ title: 'Reincidencia por categoría', labels: rc, labelW: 170, series: [{ name: 'Tickets', color: COLORS.brand, values: rc.map(function (k) { return RI.porCategoria[k]; }) }], fmt: num }) : '<p class="hint">Sin reincidencias.</p>') +
-        tile('c7', 'Cuentas reincidentes', 'SGU total · agrupadas por número de cuenta del título', table('<th>Cliente</th><th>Cuenta</th><th>Categorías</th><th>Tickets</th>', '', RI.detalle.length ? RI.detalle.map(function (d) { return { cells: [d.nombre, d.cuenta, d.categorias.join('\n'), d.tickets.map(function (t) { return t.id + (t.pia ? ' (PIA)' : ''); }).join('\n')] }; }) : [{ cells: ['Sin reincidencias', '', '', ''] }]));
+        tile('c7', 'Cuentas reincidentes FTTH', 'SGU total · por número de cuenta del título' + (R.reincExcluidas.length ? ' · no cuentan: ' + R.reincExcluidas.map(function (c) { return E.catCorta(c).toLowerCase(); }).join(', ') : ''), table('<th>Cliente</th><th>Cuenta</th><th>Categorías</th><th>Tickets</th>', '', RI.detalle.length ? RI.detalle.map(function (d) { return { cells: [d.nombre, d.cuenta, d.categorias.join('\n'), d.tickets.map(function (t) { return t.id + (t.pia ? ' (PIA)' : ''); }).join('\n')] }; }) : [{ cells: ['Sin reincidencias', '', '', ''] }]));
     } else if (i === 5 || i === 6) {
       var semana = i === 5;
       var cols = semana ? ['Abiertos', 'Pendientes', 'Resueltos', 'Pend. acum.', 'Resuelto acum.', '% jornada'] : ['Abiertos', 'Pendientes', 'Resueltos mismo día', '% jornada'];
@@ -436,16 +445,16 @@
     var f = filtros();
     var cards = FILTROS.map(function (d) {
       var open = S.openFilter && S.openFilter.id === d.id;
-      return '<div class="fcard' + (open ? ' open' : '') + '" data-f="' + d.id + '"><button type="button" class="fhead" aria-expanded="' + open + '"><b>' + esc(d.title) + '</b><span>' + f[d.id].length + ' de ' + R.opciones[d.kind].length + ' ' + d.noun + '</span></button>' +
+      return '<div class="fcard' + (open ? ' open' : '') + '" data-f="' + d.id + '"><button type="button" class="fhead" aria-expanded="' + open + '"><b>' + esc(d.title) + '</b><span>' + marcadas(d, R, f[d.id]).length + ' de ' + filterOptions(d, R).length + ' ' + d.noun + (d.invert ? ' cuentan' : '') + '</span></button>' +
         (open ? filterList(d, R) : '') + '</div>';
     }).join('');
     return '<aside class="fpane' + (S.fpaneOpen ? '' : ' closed') + '" aria-label="Filtros"><div class="fh"><span>' + ICONS.filter.replace('<svg', '<svg width="15" height="15" style="vertical-align:-2px;margin-right:6px"') + 'Filtros</span><button type="button" id="fToggle" aria-label="' + (S.fpaneOpen ? 'Ocultar filtros' : 'Mostrar filtros') + '">' + (S.fpaneOpen ? '»' : '«') + '</button></div>' +
       '<div class="fbody">' + cards + '<p class="hint">Por defecto se usan las 10 categorías y los 10 grupos de la especificación. Lo demás se suma en "Otro". Los filtros se guardan para todos los usuarios y se aplican al informe, la presentación y las descargas.</p></div></aside>';
   }
   function filterOptions(d, R) {
-    var k = d.kind === 'grupos' ? E.grpKey : E.norm, opts = R.opciones[d.kind].slice(), known = {};
+    var k = keyerDe(d), opts = R.opciones[d.kind].slice(), known = {};
     opts.forEach(function (o) { known[o.key] = true; });
-    filtros()[d.id].forEach(function (lab) { var kk = k(lab); if (!known[kk]) { opts.push({ label: lab, key: kk, sgu: 0, total: 0 }); known[kk] = true; } });
+    filtros()[d.id].forEach(function (lab) { var kk = k(lab); if (!known[kk]) { opts.push({ label: d.kind === 'grupos' ? E.grpLabel(lab) : lab, key: kk, sgu: 0, total: 0 }); known[kk] = true; } });
     return opts;
   }
   function filterList(d, R) {
@@ -484,9 +493,9 @@
     tog.addEventListener('click', function () { S.fpaneOpen = !S.fpaneOpen; rerender(); });
     Array.prototype.forEach.call(document.querySelectorAll('.fcard'), function (cardEl) {
       var id = cardEl.getAttribute('data-f'), d = FILTROS.filter(function (x) { return x.id === id; })[0];
-      var k = d.kind === 'grupos' ? E.grpKey : E.norm;
+      var k = keyerDe(d);
       cardEl.querySelector('.fhead').addEventListener('click', function () {
-        S.openFilter = S.openFilter && S.openFilter.id === id ? null : { id: id, q: '', onlySgu: true, picked: filtros()[id].map(k) };
+        S.openFilter = S.openFilter && S.openFilter.id === id ? null : { id: id, q: '', onlySgu: !d.invert, picked: marcadas(d, R, filtros()[id]) };
         rerender();
       });
       var list = cardEl.querySelector('.flist');
@@ -499,7 +508,7 @@
       var visibles = function () { return Array.prototype.map.call(list.querySelectorAll('.opts input[data-i]'), function (c) { return opts[+c.getAttribute('data-i')].key; }); };
       list.querySelector('[data-role="all"]').addEventListener('click', function () { visibles().forEach(function (key) { if (st.picked.indexOf(key) < 0) st.picked.push(key); }); redraw(); });
       list.querySelector('[data-role="none"]').addEventListener('click', function () { var v = visibles(); st.picked = st.picked.filter(function (key) { return v.indexOf(key) < 0; }); redraw(); });
-      list.querySelector('[data-role="orig"]').addEventListener('click', function () { st.picked = defaultsFiltros()[id].map(k); redraw(); });
+      list.querySelector('[data-role="orig"]').addEventListener('click', function () { st.picked = marcadas(d, R, defaultsFiltros()[id]); redraw(); });
       list.querySelector('.opts').addEventListener('change', function (e) {
         var i = e.target.getAttribute('data-i'); if (i === null) return;
         var key = opts[+i].key, at = st.picked.indexOf(key);
@@ -508,9 +517,14 @@
       });
       list.querySelector('[data-role="cancel"]').addEventListener('click', function () { S.openFilter = null; rerender(); });
       list.querySelector('[data-role="apply"]').addEventListener('click', function () {
-        var prev = filtros()[id].filter(function (lab) { return st.picked.indexOf(k(lab)) >= 0; }), prevK = prev.map(k);
-        var added = opts.filter(function (o) { return st.picked.indexOf(o.key) >= 0 && prevK.indexOf(o.key) < 0; }).map(function (o) { return o.label; });
-        S.filtros = Object.assign(filtros(), {}); S.filtros[id] = prev.concat(added);
+        S.filtros = Object.assign(filtros(), {});
+        if (d.invert) {
+          S.filtros[id] = opts.filter(function (o) { return st.picked.indexOf(o.key) < 0; }).map(function (o) { return o.label; });
+        } else {
+          var prev = filtros()[id].filter(function (lab) { return st.picked.indexOf(k(lab)) >= 0; }), prevK = prev.map(k);
+          var added = opts.filter(function (o) { return st.picked.indexOf(o.key) >= 0 && prevK.indexOf(o.key) < 0; }).map(function (o) { return o.label; });
+          S.filtros[id] = prev.concat(added).map(function (lab) { return d.kind === 'grupos' ? E.grpLabel(lab) : lab; }).filter(function (lab, i, a) { return a.map(k).indexOf(k(lab)) === i; });
+        }
         S.openFilter = null;
         calcular(); rerender(); guardarFiltros(); toast('Filtro aplicado para todos los usuarios.');
       });
@@ -627,18 +641,22 @@
   }
 
   /* ================= presentación (estilo PowerPoint) ================= */
-  function buildHtmlDeck() { return D.build(H.HtmlDeck, S.R, S.assets, E); }
+  var DECKS = [['pia', 'PIA vs. SGU', 'PIA VS SGU'], ['sgu', 'SGU vs. País', 'SGU VS PAIS']];
+  function deckTipo() { return S.deck === 'sgu' ? 'sgu' : 'pia'; }
+  function deckName() { var R = S.R, d = DECKS.filter(function (x) { return x[0] === deckTipo(); })[0]; return 'Gestion ' + d[2] + ' - ' + String(R.periodo).toUpperCase() + ' ' + R.corteFecha.replace(/\//g, '-'); }
+  function buildHtmlDeck() { return D.build(H.HtmlDeck, S.R, S.assets, E, deckTipo()); }
   function fit(stageEl, box) { var sc = box.clientWidth / H.WIDTH; stageEl.style.transform = 'scale(' + sc + ')'; }
   function renderDeck() {
     var R = S.R;
     if (!R) { shell('presentacion', ctxSelector(), sinCarga('la presentación')); bindCtx(); return; }
     var deck = buildHtmlDeck(), n = deck.slides.length;
     if (S.slide >= n) S.slide = n - 1;
-    shell('presentacion', ctxSelector(), '<div class="deck"><div class="deck-bar"><b>Presentación · ' + esc(R.periodoTxt.replace('(', R.anio + ' (')) + '</b><span class="hint">' + n + ' diapositivas</span><span class="spacer"></span>' +
+    shell('presentacion', ctxSelector(), '<div class="deck"><div class="deck-bar"><div class="seg" role="group" aria-label="Presentación">' + DECKS.map(function (d) { return '<button type="button" data-deck="' + d[0] + '" aria-pressed="' + (deckTipo() === d[0]) + '">' + d[1] + '</button>'; }).join('') + '</div><b>' + esc(R.periodoTxt.replace('(', R.anio + ' (')) + '</b><span class="hint">' + n + ' diapositivas</span><span class="spacer"></span>' +
       '<button class="btn" id="pShow">' + ICONS.play + 'Presentar</button><button class="btn" id="pPptx">' + ICONS.down + 'PowerPoint</button><button class="btn" id="pPdf">' + ICONS.down + 'PDF</button></div>' +
       '<div class="thumbs" id="thumbs"></div><div class="stage-wrap"><div style="width:100%;max-width:1180px"><div class="stage" id="stage"></div><div class="stage-nav"><button class="btn sm" id="pPrev">‹ Anterior</button><span id="pNum"></span><button class="btn sm" id="pNext">Siguiente ›</button></div>' +
       '<p class="hint" style="text-align:center">Use los filtros del Informe para elegir las categorías y grupos que aparecen aquí.</p></div></div></div>');
     bindCtx();
+    Array.prototype.forEach.call(document.querySelectorAll('[data-deck]'), function (b) { b.addEventListener('click', function () { if (S.deck !== b.getAttribute('data-deck')) { S.deck = b.getAttribute('data-deck'); S.slide = 0; renderDeck(); } }); });
     var thumbs = document.getElementById('thumbs'), stage = document.getElementById('stage');
     deck.slides.forEach(function (s, i) {
       var b = document.createElement('button'); b.type = 'button'; b.className = 'thumb'; b.setAttribute('aria-label', 'Diapositiva ' + (i + 1));
@@ -704,7 +722,7 @@
   function exportPptx() {
     busy('Generando PowerPoint…');
     try {
-      D.build(window.PptxGenJS, S.R, S.assets, E).writeFile({ fileName: baseName() + '.pptx' })
+      D.build(window.PptxGenJS, S.R, S.assets, E, deckTipo()).writeFile({ fileName: deckName() + '.pptx' })
         .then(function () { busy(); }, function (e) { busy(); toast('No se pudo generar el PowerPoint: ' + e.message, true); });
     } catch (e) { busy(); toast('No se pudo generar el PowerPoint: ' + e.message, true); }
   }
@@ -726,7 +744,7 @@
           doc.addImage(cv.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, 13.333, 7.5);
         });
       });
-      return chain.then(function () { host.remove(); doc.save(baseName() + '.pdf'); });
+      return chain.then(function () { host.remove(); doc.save(deckName() + '.pdf'); });
     }).catch(function (e) { toast('No se pudo crear el PDF: ' + e.message, true); }).finally(function () { busy(); });
   }
 
@@ -806,7 +824,11 @@
   function arrancar() {
     busy('Cargando…');
     return Promise.all([
-      api('GET', 'filtros').then(function (j) { S.filtros = j.filtros; }),
+      api('GET', 'filtros').then(function (j) {
+        S.filtros = j.filtros;
+        // filtros guardados con la versión anterior: los grupos técnicos pasan a la lista unificada
+        if (S.filtros && !(S.filtros.version >= 4)) { S.filtros.grupos = E.DEFAULTS.grupos.slice(); if (!(S.filtros.version >= 3)) S.filtros.reincExcluir = E.DEFAULTS.reincExcluir.slice(); S.filtros.version = 4; }
+      }),
       cargarLista(),
       S.assets ? null : Promise.all([fileToB64('img/cover.jpg'), fileToB64('img/bg.jpg')]).then(function (a) { S.assets = { cover: 'image/jpeg;base64,' + a[0], bg: 'image/jpeg;base64,' + a[1] }; })
     ]).then(function () {

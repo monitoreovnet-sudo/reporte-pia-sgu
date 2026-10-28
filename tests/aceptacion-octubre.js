@@ -19,7 +19,9 @@ let g, t;
 const hojas = filas(args[0]);
 if (hojas) { g = cargar(E.loadGLPI, hojas); t = cargar(E.loadTipif, hojas); }
 else { g = E.loadGLPI(require(path.resolve(args[0]))); t = E.loadTipif(require(path.resolve(args[1]))); }
-const R=E.compute(g,t,{corte:E.serialFromParts(2026,10,28,10,0,0)});
+// La sección 9 se calculó con todas las categorías FTTH en reincidencia: se verifica igual (reincExcluir vacío).
+const R=E.compute(g,t,{corte:E.serialFromParts(2026,10,28,10,0,0),reincExcluir:[]});
+const R2=E.compute(g,t,{corte:E.serialFromParts(2026,10,28,10,0,0)});
 let pass=0,fail=0;
 function chk(name,got,exp){ const ok=String(got)===String(exp); ok?pass++:fail++; console.log((ok?'OK  ':'FAIL')+' '+name+' → '+got+(ok?'':'   (esperado '+exp+')')); }
 const G=R.g, L=['pia','otras','sgu','pais'];
@@ -69,5 +71,8 @@ chk('PIA fuera SGU',R.controles.piaFueraSGU.map(x=>x.id).join(','),'340 933');
 chk('Totales coinciden',R.controles.totales.every(x=>x.ok),true);
 console.log(`\n${pass} OK, ${fail} FAIL`);
 process.exitCode = fail ? 1 : 0;
+console.log('\nReincidencia con la regla vigente (sin facturación, reembolso ni cambio de plan):');
+['pia','otras','sgu','pais'].forEach(k=>console.log('  '+k+': '+R2.g[k].reinc.abonados+' abonados / '+R2.g[k].reinc.tickets+' tickets de '+R2.g[k].reinc.ftth+' FTTH'));
+console.log('Grupos técnicos unificados (SGU total):'); R2.tiempoGrupo.forEach(r=>console.log('  '+r.label+': '+r.sgu.n+' resueltos · '+r.sgu.texto));
 console.log('upgrades país GLPI:',G.pais.upgrades.glpi.join(' | '),' reversiones:',G.pais.upgrades.reversiones.join(','));
 console.log('indefinidos:',R.controles.planIndefinido.length);

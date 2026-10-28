@@ -175,6 +175,8 @@
     var totals = labels.map(function (_, i) { return series.reduce(function (a, s) { return a + (s.values[i] || 0); }, 0); });
     var max = grouping === 'percentStacked' ? 1 : (stacked ? Math.max.apply(null, totals.concat([1])) : Math.max.apply(null, series.reduce(function (a, s) { return a.concat(s.values); }, [1])));
     var gap = (o.barGapWidthPct != null ? o.barGapWidthPct : 100) / 100;
+    var fc = o.dataLabelFormatCode || '', dec = (fc.match(/0\.(0+)/) || [null, ''])[1].length;
+    var fmtL = function (v) { return /%/.test(fc) ? Number(v).toLocaleString('es-VE', { minimumFractionDigits: dec, maximumFractionDigits: dec }) + '%' : v; };
     if (horiz) {
       var labW = o.catAxisHidden ? 0 : Math.min(plotW * 0.36, 150), valPad = o.dataLabelPosition === 'outEnd' ? 34 : 6, areaW = plotW - labW - valPad;
       var slot = plotH / n, band = slot / (1 + gap), bh = stacked ? band : band / ns;
@@ -188,7 +190,7 @@
           svg.appendChild(svgEl('rect', { x: x, y: y, width: Math.max(w, v ? 1 : 0), height: bh - (stacked ? 0 : 1), fill: colors[si % colors.length] }));
           if (o.showValue && v) {
             if (o.dataLabelPosition === 'outEnd' && !stacked) svgText(svg, x + w + 4, y + bh / 2, v, { anchor: 'start', size: lblSize, fill: lblColor });
-            else if (w > 14) svgText(svg, x + w / 2, y + bh / 2, v, { size: lblSize, fill: lblColor });
+            else if (w > 14 + String(fmtL(v)).length * 5) svgText(svg, x + w / 2, y + bh / 2, fmtL(v), { size: lblSize, fill: lblColor, bold: o.dataLabelFontBold });
           }
           acc += val;
         });

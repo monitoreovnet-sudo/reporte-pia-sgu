@@ -206,10 +206,11 @@ async function guardarFiltros(db, req, yo) {
   const b = await cuerpo(req);
   if (!b || typeof b.filtros !== 'object') return error(400, 'Filtros no válidos.');
   const limpio = {};
-  ['categorias', 'categoriasProd', 'grupos', 'fallasCats'].forEach((k) => {
+  ['categorias', 'grupos', 'reincExcluir'].forEach((k) => {
     if (Array.isArray(b.filtros[k])) limpio[k] = b.filtros[k].map((x) => String(x).slice(0, 300)).slice(0, 500);
   });
   ['sucursal', 'sguMarker', 'piaSolicitante'].forEach((k) => { if (typeof b.filtros[k] === 'string') limpio[k] = b.filtros[k].slice(0, 200); });
+  if (typeof b.filtros.version === 'number') limpio.version = b.filtros.version;
   await db.prepare(`INSERT INTO config (clave, valor, actualizado, actualizado_por) VALUES ('filtros', ?, ?, ?) ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor, actualizado = excluded.actualizado, actualizado_por = excluded.actualizado_por`)
     .bind(JSON.stringify(limpio), ahoraISO(), yo.email).run();
   return json({ ok: true });
