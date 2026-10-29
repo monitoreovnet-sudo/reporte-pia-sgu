@@ -147,7 +147,8 @@
   var GLPI_REQ = ['titulo', 'estado', 'categoria', 'apertura', 'solucion', 'solicitante', 'grupo'];
   var TIP_COLS = {
     fecha: ['Fecha'], sucursal: ['Sucursal'], categoria: ['Categoría', 'Categoria'], subcategoria: ['Subcategoría', 'Subcategoria'],
-    estatus: ['Estatus'], ticket: ['Ticket GLPI'], cuenta: ['ID de cuenta'], observaciones: ['Observaciones']
+    estatus: ['Estatus'], ticket: ['Ticket GLPI'], cuenta: ['ID de cuenta'], observaciones: ['Observaciones'],
+    motivo: ['Motivo'], cedula: ['Cédula de identidad', 'Cedula de identidad', 'Cédula'], id: ['ID']
   };
   var TIP_REQ = ['fecha', 'sucursal', 'categoria', 'subcategoria', 'estatus'];
 
@@ -201,7 +202,10 @@
         fecha: parseDate(row[i.fecha]), sucursal: String(row[i.sucursal]), categoria: row[i.categoria] == null ? '' : String(row[i.categoria]),
         subcategoria: row[i.subcategoria] == null ? '' : String(row[i.subcategoria]), estatus: row[i.estatus] == null ? '' : String(row[i.estatus]),
         ticket: i.ticket !== undefined ? soloDigitos(row[i.ticket]) : '',
-        cuenta: i.cuenta !== undefined ? soloDigitos(row[i.cuenta]) : ''
+        cuenta: i.cuenta !== undefined ? soloDigitos(row[i.cuenta]) : '',
+        motivo: i.motivo !== undefined && row[i.motivo] != null ? String(row[i.motivo]) : '',
+        cedula: i.cedula !== undefined ? soloDigitos(row[i.cedula]) : '',
+        id: i.id !== undefined && row[i.id] != null ? String(row[i.id]) : ''
       });
     }
     if (!out.length) throw new Error('El archivo del Tipificador no tiene registros.');
@@ -293,7 +297,10 @@
     var cfg = Object.assign({}, DEFAULTS, opts || {});
     if (typeof cfg.corte !== 'number') throw new Error('Falta la fecha y hora de descarga.');
     var FD = cfg.corte, fdDay = Math.floor(FD + 1e-9), fp = partsFromSerial(FD);
-    var mesIni = serialFromParts(fp.y, fp.mo, 1), mesFin = fp.mo === 12 ? serialFromParts(fp.y + 1, 1, 1) : serialFromParts(fp.y, fp.mo + 1, 1);
+    var mesFD = fp.y + '-' + pad(fp.mo);
+    var meses = (Array.isArray(cfg.meses) && cfg.meses.length ? cfg.meses : [mesFD]).filter(function (m) { return /^\d{4}-\d{2}$/.test(m) && m <= mesFD; }).sort();
+    if (!meses.length) meses = [mesFD];
+    var enMeses = function (x) { if (x === null || x === undefined) return false; var p = partsFromSerial(x); return meses.indexOf(p.y + '-' + pad(p.mo)) >= 0; };
     var wIni = fdDay - 8, wFin = fdDay; // ventana: [FD-8, FD-1] completos
     var marker = norm(cfg.sguMarker);
     var catKeys = cfg.categorias.map(norm);
@@ -306,7 +313,7 @@
     var homologadas = [], fueraPeriodo = 0;
     var T = [];
     glpiAll.forEach(function (raw, idx) {
-      if (raw.apertura === null || raw.apertura < mesIni || raw.apertura > FD) { fueraPeriodo++; return; }
+      if (raw.apertura === null || !enMeses(raw.apertura) || raw.apertura > FD) { fueraPeriodo++; return; }
       var cat = homologar(raw.categoria);
       if (cat !== String(raw.categoria).trim()) homologadas.push({ id: raw.id, de: raw.categoria, a: cat });
       var sgu = norm(raw.titulo).indexOf(marker) >= 0;
@@ -333,15 +340,28 @@
     /* --- Tipificador del mes --- */
     var tipMes = [], tipFuera = 0, tipFueraSA = 0;
     tipAll.forEach(function (r) {
-      if (r.fecha === null || r.fecha < mesIni || r.fecha >= mesFin) { tipFuera++; if (eq(r.sucursal, cfg.sucursal)) tipFueraSA++; return; }
+      if (r.fecha === null || !enMeses(r.fecha) || r.fecha > FD) { tipFuera++; if (eq(r.sucursal, cfg.sucursal)) tipFueraSA++; return; }
       tipMes.push(r);
     });
-    var tipSA = tipMes.filter(function (r) { return eq(r.sucursal, cfg.sucursal); });
+    /* duplicados del PIA: misma categoría, subcategoría, motivo, fecha (día) y cédula → se cuenta una sola vez */
+    var tipSAbruto = tipMes.filter(function (r) { return eq(r.sucursal, cfg.sucursal); });
+    var vistos = {}, tipSA = [], tipDuplicados = [];
+    tipSAbruto.forEach(function (r) {
+      var k = [norm(r.categoria), norm(r.subcategoria), norm(r.motivo), r.fecha === null ? '' : Math.floor(r.fecha + 1e-9), r.cedula].join('|');
+      if (vistos[k]) { tipDuplicados.push({ fila: r, original: vistos[k] }); return; }
+      vistos[k] = r; tipSA.push(r);
+    });
     var tipOtras = tipMes.filter(function (r) { return !eq(r.sucursal, cfg.sucursal); });
-    var fcr = tipSA.filter(function (r) { return eq(r.estatus, cfg.fcrStatus); }).length;
+    var fcrFilas = tipSA.filter(function (r) { return eq(r.estatus, cfg.fcrStatus); });
+    var escFilas = tipSA.filter(function (r) { return !eq(r.estatus, cfg.fcrStatus); });
+    var fcr = fcrFilas.length;
     var estatusN = tipSA.filter(function (r) { return eq(r.subcategoria, cfg.estatusSubcat) && !eq(r.estatus, cfg.fcrStatus); }).length;
     var estatusTodas = tipSA.filter(function (r) { return eq(r.subcategoria, cfg.estatusSubcat); }).length;
-    var abonados = {}; tipSA.forEach(function (r) { if (r.cuenta) abonados[r.cuenta] = 1; });
+    var cedulas = {}; tipSA.forEach(function (r) { if (r.cedula) cedulas[r.cedula] = 1; });
+    /* escalados del PIA: se buscan en GLPI por "Ticket GLPI" (todo el archivo de GLPI) */
+    var glpiPorId = {}; glpiAll.forEach(function (raw) { var k = soloDigitos(raw.id); if (k) glpiPorId[k] = raw; });
+    var escCruce = escFilas.map(function (r) { var g = r.ticket ? glpiPorId[r.ticket] : null; return { fila: r, ticket: g, resuelto: !!(g && g.solucion !== null) }; });
+    var escResueltos = escCruce.filter(function (x) { return x.resuelto; }).length;
 
     /* --- volúmenes --- */
     GRUPOS.forEach(function (g) {
@@ -352,11 +372,12 @@
     });
 
     /* --- 4.1 fijos --- */
-    var irNum = porGrupo.sgu.solucionados + fcr + estatusN, irDen = porGrupo.sgu.creados + fcr + estatusN;
+    var irNum = fcr + escResueltos, irDen = tipSA.length;
     var fijos = {
-      ir: { num: irNum, den: irDen, pct: irDen ? irNum / irDen : null },
+      ir: { num: irNum, den: irDen, pct: irDen ? irNum / irDen : null, fcr: fcr, escalados: escFilas.length, escResueltos: escResueltos,
+        escSinTicket: escCruce.filter(function (x) { return !x.fila.ticket; }).length, escNoEncontrado: escCruce.filter(function (x) { return x.fila.ticket && !x.ticket; }).length },
       fcr: { n: fcr, den: tipSA.length, pct: tipSA.length ? fcr / tipSA.length : null },
-      productividad: { casos: tipSA.length, abonados: Object.keys(abonados).length, escalados: porGrupo.pia.creados },
+      productividad: { casos: tipSA.length, abonados: Object.keys(cedulas).length, duplicados: tipDuplicados.length, bruto: tipSAbruto.length, escalados: escFilas.length },
       estatus: estatusN, estatusTodas: estatusTodas,
       nps: cfg.nps || ''
     };
@@ -510,6 +531,8 @@
     /* --- controles de calidad (sección 8) --- */
     var SGU = porGrupo.sgu.lista;
     controles.tipFuera = { n: tipFuera, sa: tipFueraSA };
+    controles.tipDuplicados = tipDuplicados.map(function (x) { var r = x.fila; return { id: r.id, original: x.original.id, cedula: r.cedula, fecha: r.fecha === null ? '' : fmtDate(r.fecha), categoria: r.categoria, subcategoria: r.subcategoria, motivo: r.motivo, estatus: r.estatus }; });
+    controles.escaladosSinCruce = escCruce.filter(function (x) { return !x.ticket; }).map(function (x) { return { id: x.fila.id, ticket: x.fila.ticket || '(vacío)', cedula: x.fila.cedula, fecha: x.fila.fecha === null ? '' : fmtDate(x.fila.fecha), subcategoria: x.fila.subcategoria }; });
     controles.glpiFuera = { n: fueraPeriodo };
     controles.homologadas = homologadas;
     controles.duplicadosId = glpiAll.duplicados || 0;
@@ -561,6 +584,184 @@
     });
     function lista(o) { return Object.keys(o).map(function (k) { return o[k]; }).filter(function (x) { return x.key; }).sort(function (a, b) { return b.sgu - a.sgu || b.total - a.total || a.label.localeCompare(b.label); }); }
 
+    /* ================= "Ver lógica del cálculo" (auditoría) ================= */
+    var DEF_G = {
+      pia: 'Título contiene "' + cfg.sguMarker + '" y Solicitante = "' + cfg.piaSolicitante + '"',
+      otras: 'Título contiene "' + cfg.sguMarker + '" y Solicitante distinto de "' + cfg.piaSolicitante + '"',
+      sgu: 'Título contiene "' + cfg.sguMarker + '"',
+      pais: 'Título NO contiene "' + cfg.sguMarker + '"'
+    };
+    var nomMeses = meses.map(function (m) { return MESES[+m.slice(5) - 1] + ' ' + m.slice(0, 4); }).join(', ');
+    function fdt(x) { if (x === null || x === undefined) return ''; var p = partsFromSerial(x); return pad(p.d) + '/' + pad(p.mo) + '/' + p.y + ' ' + pad(p.h) + ':' + pad(p.mi); }
+    var filtroPeriodoGLPI = 'GLPI: tickets con "Fecha de apertura" en ' + nomMeses + ' y hasta la descarga (' + fdt(FD) + ').';
+    var filtroPeriodoTip = 'Tipificador: filas con "Fecha" en ' + nomMeses + ' y hasta la descarga.';
+    var filtroSA = 'Tipificador: "Sucursal" = "' + cfg.sucursal + '".';
+    var filtroDup = 'Duplicados excluidos: misma Categoría, Subcategoría, Motivo, Fecha (día) y Cédula de una fila anterior (' + tipDuplicados.length + ' filas).';
+    var COLS_T = ['ID', 'Título', 'Estado', 'Categoría (homologada)', 'Grupo técnico (unificado)', 'Solicitante', 'Apertura', 'Solución', 'Cierre', 'Tiempo de resolución'];
+    function filaT(t) { return [t.id, t.raw.titulo, t.raw.estado, t.cat, t.grpL, t.raw.solicitante, fdt(t.raw.apertura), fdt(t.raw.solucion), fdt(t.raw.cierre), t.dur === null ? '' : fmtD(t.dur)]; }
+    var COLS_P = ['ID', 'Fecha', 'Cédula', 'Categoría', 'Subcategoría', 'Motivo', 'Estatus', 'Ticket GLPI'];
+    function filaP(r) { return [r.id, r.fecha === null ? '' : fmtDate(r.fecha), r.cedula, r.categoria, r.subcategoria, r.motivo, r.estatus, r.ticket]; }
+    function regT(titulo, L) { return { titulo: titulo, cols: COLS_T, filas: L.map(filaT) }; }
+    function regP(titulo, L) { return { titulo: titulo, cols: COLS_P, filas: L.map(filaP) }; }
+    function filtroCampo(campo, claves, lab) {
+      if (lab === 'Otro') return function (t) { return claves.indexOf(t[campo]) < 0; };
+      var k = campo === 'grpK' ? grpKey(lab) : norm(lab);
+      return function (t) { return t[campo] === k; };
+    }
+    function textoMP(mp) {
+      if (!mp.n) return ['No hay tickets resueltos: la celda muestra "-".'];
+      var out = ['Promedio = suma de los tiempos ÷ ' + mp.n + ' tickets = ' + fmtD(mp.prom) + '.'];
+      out.push(mp.moda === null ? 'Moda: ningún valor (redondeado a la hora) se repite 2 o más veces, por eso se muestra el promedio (P).' : 'Moda = tiempo más repetido después de redondear cada ticket a la hora más cercana: ' + fmtD(mp.moda) + '.');
+      out.push('Regla de la celda: sin moda → "P: promedio"; moda 0 h → "M: 0 h / P: promedio"; moda mayor a 0 → "M: moda"; fila Total → "M: moda / P: promedio".');
+      return out;
+    }
+    function explicar(x) {
+      var e = { titulo: '', valor: '', definicion: '', pasos: [], filtros: [], registros: [] };
+      var g = x.g, L = g ? porGrupo[g].lista : null, et = g ? ETIQUETAS[g] : '';
+      switch (x.k) {
+        case 'prod':
+          e.titulo = 'Productividad del punto PIA'; e.valor = miles(tipSA.length) + ' casos · ' + miles(Object.keys(cedulas).length) + ' abonados';
+          e.definicion = 'Casos únicos que la sucursal ' + cfg.sucursal + ' registró en el Tipificador en el período. Abonados = cédulas distintas atendidas.';
+          e.filtros = [filtroSA, filtroPeriodoTip, filtroDup];
+          e.pasos = ['Filas de ' + cfg.sucursal + ' en el período: ' + miles(tipSAbruto.length) + '.', 'Menos duplicados: ' + miles(tipDuplicados.length) + '.', 'Casos únicos (productividad): ' + miles(tipSA.length) + '.', 'Cédulas distintas entre esos casos (abonados): ' + miles(Object.keys(cedulas).length) + '.'];
+          e.registros = [regP('Casos contados', tipSA), regP('Duplicados excluidos', tipDuplicados.map(function (d) { return d.fila; }))];
+          break;
+        case 'fcr':
+          e.titulo = 'Resolución en 1er contacto (FCR)'; e.valor = pct(fijos.fcr.pct) + ' · ' + miles(fcr) + ' casos';
+          e.definicion = 'Casos únicos del PIA con Estatus "' + cfg.fcrStatus + '", sobre la productividad del punto.';
+          e.filtros = [filtroSA, filtroPeriodoTip, filtroDup];
+          e.pasos = ['Casos únicos con Estatus "' + cfg.fcrStatus + '": ' + miles(fcr) + '.', 'Productividad del punto (casos únicos): ' + miles(tipSA.length) + '.', 'FCR = ' + miles(fcr) + ' ÷ ' + miles(tipSA.length) + ' = ' + pct(fijos.fcr.pct) + '.'];
+          e.registros = [regP('Resueltos en 1er contacto', fcrFilas)];
+          break;
+        case 'ir':
+          e.titulo = 'Índice de resolución PIA'; e.valor = pct(fijos.ir.pct) + ' · ' + miles(irNum) + ' casos';
+          e.definicion = 'Casos que el PIA resolvió: los resueltos en 1er contacto más los escalados cuyo ticket ya tiene fecha de solución en GLPI, sobre la productividad del punto.';
+          e.filtros = [filtroSA, filtroPeriodoTip, filtroDup, 'Escalados: casos con Estatus distinto de "' + cfg.fcrStatus + '". Se buscan en GLPI por la columna "Ticket GLPI" (en todo el archivo de GLPI, sin filtro de fecha).'];
+          e.pasos = ['Resueltos en 1er contacto: ' + miles(fcr) + '.', 'Escalados: ' + miles(escFilas.length) + ' (' + miles(fijos.ir.escSinTicket) + ' sin número de ticket, ' + miles(fijos.ir.escNoEncontrado) + ' con número que no está en GLPI).', 'Escalados con "Fecha de solución" en GLPI: ' + miles(escResueltos) + '.', 'Índice = (' + miles(fcr) + ' + ' + miles(escResueltos) + ') ÷ ' + miles(tipSA.length) + ' = ' + pct(fijos.ir.pct) + '.'];
+          e.registros = [regP('Resueltos en 1er contacto', fcrFilas), { titulo: 'Escalados y su ticket en GLPI', cols: COLS_P.concat(['Encontrado en GLPI', 'Estado GLPI', 'Fecha de solución', 'Cuenta como resuelto']), filas: escCruce.map(function (c) { return filaP(c.fila).concat([c.ticket ? 'Sí' : 'No', c.ticket ? c.ticket.estado : '', c.ticket ? fdt(c.ticket.solucion) : '', c.resuelto ? 'Sí' : 'No']); }) }];
+          break;
+        case 'nps':
+          e.titulo = 'Satisfacción / NPS'; e.valor = cfg.nps || '—'; e.definicion = 'No tiene fuente automática. Es el valor que se escribe en el Repositorio al subir la carga o con "Editar".'; break;
+        case 'creados': case 'solucionados':
+          var sol = x.k === 'solucionados', Ls = sol ? L.filter(function (t) { return t.res; }) : L;
+          e.titulo = (sol ? 'Tickets solucionados · ' : 'Tickets creados · ') + et; e.valor = miles(Ls.length);
+          e.definicion = sol ? 'Tickets del grupo con Estado "Resuelto" o "Cerrado".' : 'Todos los tickets del grupo abiertos en el período.';
+          e.filtros = [filtroPeriodoGLPI, et + ': ' + DEF_G[g] + '.'];
+          e.pasos = ['Tickets del grupo en el período: ' + miles(L.length) + '.'].concat(sol ? ['Con Estado Resuelto o Cerrado: ' + miles(Ls.length) + '.'] : []);
+          e.registros = [regT(e.titulo, Ls)]; break;
+        case 'prom':
+          var LR = L.filter(function (t) { return t.res && t.dur !== null; }), mp = porGrupo[g].tiempo;
+          e.titulo = 'Tiempo promedio de resolución · ' + et; e.valor = fmtD(mp.prom);
+          e.definicion = 'Promedio de (Fecha de solución − Fecha de apertura) de los tickets resueltos del grupo, en tiempo corrido (incluye noches y fines de semana).';
+          e.filtros = [filtroPeriodoGLPI, et + ': ' + DEF_G[g] + '.', 'Solo tickets con Estado Resuelto o Cerrado.'];
+          e.pasos = ['Tickets resueltos: ' + miles(mp.n) + '.'].concat(textoMP(mp).slice(0, 2));
+          e.registros = [regT('Tickets resueltos y su tiempo', LR)]; break;
+        case 'cmp':
+          var c = comparativos[x.id], A = porGrupo[c.a].tiempo, B = porGrupo[c.b].tiempo;
+          e.titulo = 'Comparativo ' + ETIQUETAS[c.a] + ' vs. ' + ETIQUETAS[c.b]; e.valor = c.valor + (c.ganador ? ' a favor de ' + ETIQUETAS[c.ganador] : '');
+          e.definicion = 'Diferencia absoluta entre los tiempos promedio de resolución de los dos grupos, redondeada a la hora más cercana. "A favor" del grupo con menor promedio.';
+          e.filtros = [filtroPeriodoGLPI, ETIQUETAS[c.a] + ': ' + DEF_G[c.a] + '.', ETIQUETAS[c.b] + ': ' + DEF_G[c.b] + '.'];
+          e.pasos = ['Promedio ' + ETIQUETAS[c.a] + ': ' + fmtD(A.prom) + ' (' + miles(A.n) + ' tickets).', 'Promedio ' + ETIQUETAS[c.b] + ': ' + fmtD(B.prom) + ' (' + miles(B.n) + ' tickets).', 'Diferencia: ' + c.valor + '.'];
+          break;
+        case 'semana':
+          var enV = L.filter(function (t) { return t.dAp >= wIni && t.dAp < wFin; }), cm = enV.filter(function (t) { return t.dCie !== null && t.dCie >= wIni && t.dCie < wFin; });
+          e.titulo = 'Cerrados en la misma semana que se abrieron · ' + et; e.valor = pct(porGrupo[g].semana.pct) + ' · ' + cm.length + ' de ' + enV.length;
+          e.definicion = 'Tickets abiertos en la semana (los 8 días anteriores a la descarga) que también tienen "Fecha de cierre" dentro de esa semana.';
+          e.filtros = ['Semana: del ' + fmtDate(wIni) + ' al ' + fmtDate(wFin - 1) + ' (00:00 a 23:59).', et + ': ' + DEF_G[g] + '.'];
+          e.pasos = ['Abiertos en la semana: ' + enV.length + '.', 'De ellos, cerrados dentro de la semana: ' + cm.length + '.', 'Resultado: ' + cm.length + ' ÷ ' + enV.length + ' = ' + pct(porGrupo[g].semana.pct) + '.'];
+          e.registros = [regT('Abiertos en la semana', enV), regT('Cerrados en la misma semana', cm)]; break;
+        case 'reinc':
+          var RI = porGrupo[g].reinc;
+          e.titulo = 'Reincidencia de fallas FTTH · ' + et; e.valor = RI.abonados + ' abonados · ' + RI.tickets + ' tickets';
+          e.definicion = 'Cuentas (número del título) con 2 o más tickets FTTH dentro del mismo grupo en el período.';
+          e.filtros = [filtroPeriodoGLPI, et + ': ' + DEF_G[g] + '.', 'Categoría contiene "FTTH" (incluye Cobranzas Masivas > FTTH).', reincFuera.length ? 'No cuentan: ' + (cfg.reincExcluir || []).join('; ') + '.' : 'Cuentan todas las categorías FTTH.', 'Cuenta: del título "... - NOMBRE - CÉDULA - CUENTA". Tickets sin cuenta no entran (' + RI.sinCuenta.length + ').'];
+          e.pasos = ['Tickets FTTH que cuentan: ' + RI.ftth + '.', 'Cuentas con 2 o más tickets: ' + RI.abonados + ', que suman ' + RI.tickets + ' tickets.', 'Porcentaje: ' + RI.tickets + ' ÷ ' + RI.ftth + ' = ' + pct(RI.pct) + '.'];
+          e.registros = [{ titulo: 'Cuentas reincidentes', cols: ['Cuenta', 'Cliente', 'Ticket', 'Categoría', 'Estado'], filas: RI.detalle.reduce(function (a, d) { return a.concat(d.tickets.map(function (t) { return [d.cuenta, d.nombre, t.id, t.cat, t.estado]; })); }, []) }]; break;
+        case 'upgrades': case 'sva':
+          var U = porGrupo[g].upgrades, V = porGrupo[g].sva;
+          if (x.k === 'upgrades') {
+            e.titulo = 'Upgrades · ' + et; e.valor = miles(U.n);
+            e.definicion = 'Aumentos de plan VNET (200, 400, 600, 1 Giga). GLPI: tickets "' + cfg.cambioPlanCat + '" cuya descripción indica subir de plan. Tipificador: Subcategoría "' + cfg.aumentoSubcat + '". Si un ticket está en las dos fuentes, cuenta una vez.';
+            e.filtros = [filtroPeriodoGLPI, filtroPeriodoTip, et + ': ' + DEF_G[g] + '.', 'No cuentan disminuciones ni cambios revertidos ("por accidente", "equivocado").'];
+            e.pasos = ['Cambios de plan del grupo en GLPI: ' + U.cambiosPlan + ' (' + U.bajas + ' a un plan menor o revertidos).', 'Aumentos en GLPI: ' + U.glpi.length + (U.glpi.length ? ' (' + U.glpi.join(', ') + ')' : '') + '.', 'Aumentos en el Tipificador: ' + U.tip + ', repetidos con GLPI: ' + U.repetidos + '.', 'Total: ' + U.n + '.'];
+            e.registros = [regT('Cambios de plan del grupo en GLPI', cambios.filter(function (c) { return EN[g](c.t); }).map(function (c) { return c.t; }))];
+          } else {
+            e.titulo = 'SVA · ' + et; e.valor = miles(V.n);
+            e.definicion = 'Activaciones de ExitLag o Pley (Tipificador: Categoría Exitlag o Pley con Subcategoría de activación) y tickets Pley de GLPI con activación o cambio a un plan Pley superior.';
+            e.filtros = [filtroPeriodoGLPI, filtroPeriodoTip, et + ': ' + DEF_G[g] + '.', 'No cuentan retiros, bajas, desactivaciones, soporte ni Contigo +.'];
+            e.pasos = ['En el Tipificador: ' + V.tip + '.', 'En GLPI: ' + V.glpi.length + (V.glpi.length ? ' (' + V.glpi.join(', ') + ')' : '') + '.', 'Total: ' + V.n + '.'];
+          }
+          break;
+        case 'cel': case 'prodcel':
+          var tabla = x.k === 'prodcel' ? 'productividad' : x.t, campo = tabla === 'tiempoGrupo' ? 'grpK' : 'catK';
+          var filas = tabla === 'productividad' ? productividad : (tabla === 'tiempoGrupo' ? tiempoGrupo : tiempoCategoria);
+          var row = filas[x.r], claves = campo === 'grpK' ? grpKeys : catKeys;
+          if (row.estatus) {
+            e.titulo = 'Estatus de un ticket de reporte · PIA'; e.valor = miles(estatusN);
+            e.definicion = 'Consultas del Tipificador de ' + cfg.sucursal + ' con Subcategoría "' + cfg.estatusSubcat + '" y Estatus distinto de "' + cfg.fcrStatus + '". No generan ticket.';
+            e.filtros = [filtroSA, filtroPeriodoTip, filtroDup];
+            e.registros = [regP('Consultas de estatus', tipSA.filter(function (r) { return eq(r.subcategoria, cfg.estatusSubcat) && !eq(r.estatus, cfg.fcrStatus); }))];
+            break;
+          }
+          var Lc = row.total ? L : L.filter(filtroCampo(campo, claves, row.label));
+          var nombreTabla = tabla === 'productividad' ? 'Productividad por categoría' : (tabla === 'tiempoGrupo' ? 'Tiempo de resolución por grupo técnico' : 'Tiempo de resolución por categoría');
+          e.titulo = nombreTabla + ' · ' + row.label + ' · ' + et;
+          e.filtros = [filtroPeriodoGLPI, et + ': ' + DEF_G[g] + '.', row.total ? 'Fila Total: todos los tickets del grupo.' : (row.label === 'Otro' ? (campo === 'grpK' ? 'Grupo técnico' : 'Categoría') + ' fuera de la lista de la tabla.' : (campo === 'grpK' ? 'Grupo técnico (unificado)' : 'Categoría (homologada)') + ' = "' + row.label + '".')];
+          if (campo === 'grpK') e.filtros.push('Grupos unificados: termina en Cobranzas Masivas → Cobranzas Masivas (+); reparación → Reparación (+); activaciones → Activaciones (+); UDN Caracas → UDN Caracas (+); COR → COR (+); Contratista San Agustín → Contratista San Agustín (+).');
+          else e.filtros.push('Categorías homologadas: se quita ">" o "<" al final.');
+          if (tabla === 'productividad') {
+            var LsP = Lc.filter(function (t) { return t.res; });
+            e.valor = x.m === 'solucionados' ? miles(LsP.length) : miles(Lc.length);
+            e.definicion = x.m === 'solucionados' ? 'Tickets de la fila con Estado Resuelto o Cerrado.' : 'Todos los tickets de la fila abiertos en el período.';
+            e.pasos = ['Creados: ' + miles(Lc.length) + '.', 'Solucionados: ' + miles(LsP.length) + '.'];
+            e.registros = [regT(x.m === 'solucionados' ? 'Tickets solucionados' : 'Tickets creados', x.m === 'solucionados' ? LsP : Lc)];
+          } else {
+            var LR2 = Lc.filter(function (t) { return t.res && t.dur !== null; }), mp2 = row[g];
+            e.valor = x.m === 'n' ? miles(mp2.n) + ' tickets resueltos' : mp2.texto;
+            e.definicion = x.m === 'n' ? 'Tickets resueltos (Estado Resuelto o Cerrado) de la fila.' : '"Moda o promedio" del tiempo de resolución (Fecha de solución − Fecha de apertura) de los tickets resueltos de la fila.';
+            e.pasos = x.m === 'n' ? ['Tickets de la fila: ' + miles(Lc.length) + '; resueltos: ' + miles(LR2.length) + '.'] : textoMP(mp2);
+            e.registros = [regT('Tickets resueltos de la fila', LR2)];
+          }
+          break;
+        case 'jor':
+          var J = porGrupo[g].jornada, dia = x.d >= 0 ? J.filas[x.d] : null, D = dia ? dia.serial : null;
+          var etiq = { abiertos: 'Abiertos', pendientes: 'Pendientes', resueltos: 'Resueltos', mismoDia: 'Resueltos el mismo día', pendAcc: 'Pendiente acumulado', resAcc: 'Resuelto acumulado', pct: '% en jornada' }[x.c];
+          var desde = wIni, hasta = D === null ? wFin - 1 : D;
+          var abiertosD = L.filter(function (t) { return D === null ? (t.dAp >= wIni && t.dAp < wFin) : t.dAp === D; });
+          var mismo = abiertosD.filter(function (t) { return t.dSol === t.dAp; });
+          var resD = L.filter(function (t) { return D === null ? (t.dSol !== null && t.dSol >= wIni && t.dSol < wFin) : t.dSol === D; });
+          var pendAcc = L.filter(function (t) { return t.dAp >= desde && t.dAp <= hasta && !(t.dSol !== null && t.dSol <= hasta); });
+          e.titulo = etiq + ' · ' + et + ' · ' + (dia ? dia.dia + ' ' + dia.fecha : 'Total semanal');
+          e.filtros = [et + ': ' + DEF_G[g] + '.', 'Semana: del ' + fmtDate(wIni) + ' al ' + fmtDate(wFin - 1) + '.', 'Resuelto = Estado Resuelto o Cerrado, por su Fecha de solución.'];
+          var defs = {
+            abiertos: ['Tickets con Fecha de apertura ' + (dia ? 'ese día' : 'en la semana') + '.', abiertosD.length, regT('Abiertos', abiertosD)],
+            pendientes: ['Abiertos ' + (dia ? 'ese día' : 'en la semana') + ' que no se resolvieron el mismo día de su apertura.', abiertosD.length - mismo.length, regT('Abiertos y no resueltos el mismo día', abiertosD.filter(function (t) { return t.dSol !== t.dAp; }))],
+            resueltos: ['Tickets con Fecha de solución ' + (dia ? 'ese día' : 'en la semana') + ', sin importar cuándo se abrieron.', resD.length, regT('Resueltos', resD)],
+            mismoDia: ['Abiertos y resueltos el mismo día.', mismo.length, regT('Resueltos el mismo día', mismo)],
+            pendAcc: ['Tickets abiertos desde el inicio de la semana hasta ' + fmtDate(hasta) + ' que seguían sin solución al cierre de ese día.', pendAcc.length, regT('Pendientes acumulados', pendAcc)],
+            resAcc: ['Suma de "Resueltos" desde el inicio de la semana hasta ' + fmtDate(hasta) + '.', (dia || J.total).resAcc, regT('Resueltos acumulados', L.filter(function (t) { return t.dSol !== null && t.dSol >= wIni && t.dSol <= hasta; }))],
+            pct: ['Resueltos el mismo día ÷ abiertos.', pct(abiertosD.length ? mismo.length / abiertosD.length : null), regT('Abiertos', abiertosD)]
+          }[x.c];
+          e.definicion = defs[0]; e.valor = String(typeof defs[1] === 'number' ? miles(defs[1]) : defs[1]);
+          e.pasos = x.c === 'pct' ? ['Abiertos: ' + abiertosD.length + '; resueltos el mismo día: ' + mismo.length + '.', 'Resultado: ' + mismo.length + ' ÷ ' + abiertosD.length + ' = ' + defs[1] + '.'] : [e.definicion + ' Resultado: ' + e.valor + '.'];
+          e.registros = [defs[2]]; break;
+        case 'gestion':
+          var enW = L.filter(function (t) { return t.dAp >= wIni && t.dAp < wFin; });
+          var sets = {
+            abiertos: ['Tickets con Fecha de apertura en la semana.', enW],
+            resueltos: ['Tickets con Fecha de solución en la semana (Estado Resuelto o Cerrado).', L.filter(function (t) { return t.dSol !== null && t.dSol >= wIni && t.dSol < wFin; })],
+            cerrados: ['Tickets con Fecha de cierre en la semana.', L.filter(function (t) { return t.dCie !== null && t.dCie >= wIni && t.dCie < wFin; })]
+          }[x.c] || ['Resueltos el mismo día de su apertura ÷ abiertos en la semana.', enW.filter(function (t) { return t.dSol === t.dAp; })];
+          e.titulo = 'Gestión en la última semana · ' + et; e.valor = x.c === 'pct' ? pct(porGrupo[g].gestion.pct) : miles(sets[1].length);
+          e.definicion = sets[0]; e.filtros = [et + ': ' + DEF_G[g] + '.', 'Semana: del ' + fmtDate(wIni) + ' al ' + fmtDate(wFin - 1) + '.'];
+          e.pasos = [sets[0] + ' Resultado: ' + e.valor + '.'];
+          e.registros = [regT(e.titulo, sets[1])]; break;
+        default:
+          e.titulo = 'Sin explicación disponible';
+      }
+      return e;
+    }
+
     var resumenGrupos = {};
     GRUPOS.forEach(function (g) {
       var P = porGrupo[g];
@@ -574,10 +775,11 @@
     return {
       cfg: cfg,
       periodo: MESES[fp.mo - 1], anio: fp.y,
-      periodoTxt: MESES[fp.mo - 1] + ' (1 al ' + fp.d + ')',
+      meses: meses,
+      periodoTxt: meses.length === 1 && meses[0] === mesFD ? MESES[fp.mo - 1] + ' (1 al ' + fp.d + ')' : meses.map(function (m) { return MESES[+m.slice(5) - 1]; }).join(', ').replace(/, ([^,]*)$/, ' y $1') + ' (hasta el ' + fmtDM(FD) + ')',
       corteTxt: (function () { var h = fp.h % 12 === 0 ? 12 : fp.h % 12; return h + (fp.mi ? ':' + pad(fp.mi) : '') + (fp.h < 12 ? ' AM ' : ' PM ') + pad(fp.d) + '-' + pad(fp.mo) + '-' + fp.y; })(),
       corteFecha: fmtDate(FD),
-      fuentesTxt: 'GLPI y Tipificador (solo ' + MESES[fp.mo - 1].toLowerCase() + ')',
+      fuentesTxt: 'GLPI y Tipificador (' + (meses.length === 1 ? 'solo ' : '') + meses.map(function (m) { return MESES[+m.slice(5) - 1].toLowerCase(); }).join(', ').replace(/, ([^,]*)$/, ' y $1') + ')',
       ventana: { desde: fmtDate(wIni), hasta: fmtDate(wFin - 1), corta: partsFromSerial(wIni).d + '–' + fmtDM(wFin - 1) },
       etiquetas: ETIQUETAS, etiquetasLargas: ETIQUETAS_LARGAS,
       fijos: fijos, g: resumenGrupos, comparativos: comparativos,
@@ -587,6 +789,7 @@
       controles: controles,
       volumen: { glpi: T.length, tipSA: tipSA.length, tipMes: tipMes.length },
       opciones: { categorias: lista(oc), grupos: lista(og), ftth: lista(of) },
+      explicar: explicar,
       reincExcluidas: (cfg.reincExcluir || []).map(homologar)
     };
   }

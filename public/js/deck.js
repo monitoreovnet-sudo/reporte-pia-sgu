@@ -129,9 +129,9 @@
       ], { x: 0.72, y: 1.3, w: 12, h: 0.28, valign: 'middle' });
       var cw = 4.0, ch = 1.66, gx = 0.17, gy = 0.13, x0 = 0.45, y0 = 1.72;
       var X = function (c) { return x0 + c * (cw + gx); }, Y = function (r) { return y0 + r * (ch + gy); };
-      card(s, X(0), Y(0), cw, ch, { label: 'Índice de resolución PIA', chip: 'pia', value: pct(F.ir.pct), unit: miles(F.ir.num) + ' Casos', sub: 'de ' + miles(F.ir.den) + ' casos: GLPI San Agustín + resueltos en 1er contacto + consultas de estatus' });
-      card(s, X(1), Y(0), cw, ch, { label: 'Resolución en 1er contacto (FCR)', chip: 'pia', value: pct(F.fcr.pct), unit: miles(F.fcr.n) + ' Casos', sub: 'de los ' + miles(F.fcr.den) + ' casos tipificados por el PIA en ' + R.periodo.toLowerCase() });
-      card(s, X(2), Y(0), cw, ch, { label: 'Productividad del punto PIA', chip: 'pia', value: miles(F.productividad.casos) + ' Casos', size: 22, unit: miles(F.productividad.abonados) + ' abonados', sub: 'casos tipificados en ' + R.periodo.toLowerCase() + '; ' + miles(F.productividad.escalados) + ' escalados a GLPI' });
+      card(s, X(0), Y(0), cw, ch, { label: 'Índice de resolución PIA', chip: 'pia', value: pct(F.ir.pct), unit: miles(F.ir.num) + ' Casos', sub: miles(F.ir.fcr) + ' resueltos en 1er contacto + ' + miles(F.ir.escResueltos) + ' escalados con solución en GLPI, de ' + miles(F.ir.den) + ' casos del PIA' });
+      card(s, X(1), Y(0), cw, ch, { label: 'Resolución en 1er contacto (FCR)', chip: 'pia', value: pct(F.fcr.pct), unit: miles(F.fcr.n) + ' Casos', sub: 'de los ' + miles(F.fcr.den) + ' casos únicos tipificados por el PIA' });
+      card(s, X(2), Y(0), cw, ch, { label: 'Productividad del punto PIA', chip: 'pia', value: miles(F.productividad.casos) + ' Casos', size: 22, unit: miles(F.productividad.abonados) + ' abonados', sub: 'casos únicos tipificados por ' + R.cfg.sucursal + (F.productividad.duplicados ? ' (' + miles(F.productividad.duplicados) + ' duplicados excluidos)' : '') + '; abonados = cédulas distintas' });
       var sem = function (g) { var x = G[g].semana; return { value: pct(x.pct), sub: miles(x.cerradosMisma) + ' de ' + miles(x.abiertos) + ' abiertos (' + R.ventana.corta + ')' }; };
       cardPar(s, X(0), Y(1), cw, ch, 'Cerrados en la misma semana que se abrieron', '', a, b, sem(a), sem(b), sinChipB);
       card(s, X(1), Y(1), cw, ch, { label: 'Satisfacción / NPS', tag: 'Trimestral', value: F.nps || '—', sub: F.nps ? '' : 'sin medición en este corte' });

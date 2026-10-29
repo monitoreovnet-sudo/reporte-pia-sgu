@@ -48,6 +48,7 @@
     ]);
   }
   function saveBlob(blob, name) {
+    name = String(name).normalize('NFD').replace(/[\u0300-\u036f]/g, ''); // algunos navegadores descartan nombres con acentos
     var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
     document.body.appendChild(a); a.click();
     setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 3000);
@@ -90,7 +91,7 @@
   function calcular() {
     if (!S.activa) { S.R = null; return null; }
     var m = S.activa.meta;
-    var R = E.compute(S.activa.glpi, S.activa.tip, Object.assign({}, filtros(), { corte: m.corte, nps: m.nps || '' }));
+    var R = E.compute(S.activa.glpi, S.activa.tip, Object.assign({}, filtros(), { corte: m.corte, nps: m.nps || '', meses: m.meses && m.meses.length ? m.meses : null }));
     R.responsable = m.responsable || '';
     S.R = R;
     return R;
@@ -99,17 +100,17 @@
   /* ================= datos de una carga ================= */
   function empaquetar(glpi, tip) {
     return JSON.stringify({
-      v: 2, dup: glpi.duplicados || 0,
+      v: 3, dup: glpi.duplicados || 0,
       g: glpi.map(function (r) { return [r.id, r.titulo, r.estado, r.categoria, r.apertura, r.solucion, r.cierre, r.solicitante, r.grupo, r.descripcion, r.cliente]; }),
-      t: tip.map(function (r) { return [r.fecha, r.sucursal, r.categoria, r.subcategoria, r.estatus, r.ticket, r.cuenta]; })
+      t: tip.map(function (r) { return [r.fecha, r.sucursal, r.categoria, r.subcategoria, r.estatus, r.ticket, r.cuenta, r.motivo, r.cedula, r.id]; })
     });
   }
   function desempaquetar(txt) {
     var o = JSON.parse(txt);
-    if (o.v !== 2) { var e = new Error('Esta carga es del formato anterior. Vuelva a subir los archivos en el Repositorio.'); e.v1 = true; throw e; }
+    if (o.v !== 3) { var e = new Error('Esta carga es del formato anterior. Vuelva a subir los archivos en el Repositorio.'); e.v1 = true; throw e; }
     var glpi = o.g.map(function (a) { return { id: a[0], titulo: a[1], estado: a[2], categoria: a[3], apertura: a[4], solucion: a[5], cierre: a[6], solicitante: a[7], grupo: a[8], descripcion: a[9], cliente: a[10] }; });
     glpi.duplicados = o.dup || 0;
-    var tip = o.t.map(function (a) { return { fecha: a[0], sucursal: a[1], categoria: a[2], subcategoria: a[3], estatus: a[4], ticket: a[5], cuenta: a[6] }; });
+    var tip = o.t.map(function (a) { return { fecha: a[0], sucursal: a[1], categoria: a[2], subcategoria: a[3], estatus: a[4], ticket: a[5], cuenta: a[6], motivo: a[7], cedula: a[8], id: a[9] }; });
     return { glpi: glpi, tip: tip };
   }
   function activar(id) {
@@ -117,7 +118,7 @@
     if (!meta) return Promise.reject(new Error('Esa carga ya no existe.'));
     try { localStorage.setItem('pia-activa', id); } catch (e) { /* sin almacenamiento */ }
     S.activaV1 = false;
-    if (!(meta.resumen && meta.resumen.v === 2)) { S.activa = null; S.R = null; S.activaV1 = true; return Promise.reject(new Error('Esta carga es del formato anterior. Vuelva a subir los archivos en el Repositorio.')); }
+    if (!(meta.resumen && meta.resumen.v === 3)) { S.activa = null; S.R = null; S.activaV1 = true; return Promise.reject(new Error('Esta carga es del formato anterior. Vuelva a subir los archivos en el Repositorio.')); }
     if (CACHE[id]) { S.activa = { id: id, meta: meta, glpi: CACHE[id].glpi, tip: CACHE[id].tip }; calcular(); return Promise.resolve(); }
     busy('Abriendo la carga…');
     return api('GET', 'cargas/' + id).then(function (j) {
@@ -223,7 +224,7 @@
   }
 
   /* ================= repositorio ================= */
-  function esV2(c) { return c && c.resumen && c.resumen.v === 2; }
+  function esV2(c) { return c && c.resumen && c.resumen.v === 3; }
   function renderRepo() {
     var filas = S.cargas.map(function (c) {
       var r = c.resumen || {}, act = S.activa && S.activa.id === c.id, v2 = esV2(c);
@@ -250,6 +251,7 @@
       '<div class="field"><label for="fG">Archivo de GLPI</label><div class="drop" id="dG"><input type="file" id="fG" accept=".xlsx,.xls,.xlsm,.csv,.txt,.ods"><strong>Seleccione o arrastre el archivo</strong><small>Excel o CSV exportado de GLPI</small></div></div>' +
       '<div class="field"><label for="fT">Archivo del Tipificador</label><div class="drop" id="dT"><input type="file" id="fT" accept=".xlsx,.xls,.xlsm,.csv,.txt,.ods"><strong>Seleccione o arrastre el archivo</strong><small>Excel o CSV de la lista</small></div></div>' +
       '<div class="field"><label for="fC">Fecha y hora de descarga</label><input class="input" type="datetime-local" id="fC" value="' + now.toISOString().slice(0, 16) + '"><span class="hint">Define el período (del día 1 a esta fecha) y la semana (los 8 días anteriores).</span></div></div>' +
+      '<div class="field"><span class="lbl">Meses que se toman en cuenta para el informe</span><div class="row meses" id="fM"></div><span class="hint">GLPI se filtra por fecha de apertura y el Tipificador por fecha, solo en los meses marcados y hasta la fecha de descarga. Por defecto, el mes de la descarga.</span></div>' +
       '<div class="grid-form"><div class="field"><label for="fR">Responsable</label><input class="input" id="fR" value="' + esc(lastResp()) + '"></div>' +
       '<div class="field"><label for="fN">Satisfacción / NPS (opcional)</label><input class="input" id="fN" placeholder="Ej. 72 NPS"></div></div>' +
       '<p class="hint">Si es un solo Excel con varias hojas (GLPI y Tipificador), puede subir el mismo archivo en los dos campos: la app busca cada hoja por sus encabezados.</p>' +
@@ -257,6 +259,14 @@
       '<section class="panel"><h2>Cargas guardadas</h2>' + lista + '</section>' + histHtml + '</div>');
 
     var files = { g: null, t: null };
+    function pintarMeses() {
+      var m = document.getElementById('fC').value.match(/^(\d{4})-(\d{2})/), cont = document.getElementById('fM');
+      if (!m) { cont.innerHTML = ''; return; }
+      var prev = Array.prototype.map.call(cont.querySelectorAll('input:checked'), function (i) { return i.value; });
+      cont.innerHTML = opcionesMeses(+m[1], +m[2]).map(function (k, i) { var on = prev.length ? prev.indexOf(k) >= 0 : i === 0; return '<label class="chk"><input type="checkbox" value="' + k + '"' + (on ? ' checked' : '') + '> ' + nombreMes(k) + '</label>'; }).join('');
+    }
+    document.getElementById('fC').addEventListener('change', function () { document.getElementById('fM').innerHTML = ''; pintarMeses(); });
+    pintarMeses();
     [['dG', 'fG', 'g'], ['dT', 'fT', 't']].forEach(function (x) {
       var drop = document.getElementById(x[0]), inp = document.getElementById(x[1]);
       function set(f) { files[x[2]] = f || null; drop.classList.toggle('has', !!f); drop.querySelector('strong').textContent = f ? f.name : 'Seleccione o arrastre el archivo'; drop.querySelector('small').textContent = f ? (f.size / 1048576).toFixed(1) + ' MB' : ''; }
@@ -275,7 +285,8 @@
       if (!m) return fail('Indique la fecha y hora en que se descargó la data.');
       var corte = E.serialFromParts(+m[1], +m[2], +m[3], +m[4], +m[5], 0);
       var resp = document.getElementById('fR').value.trim(), nps = document.getElementById('fN').value.trim();
-      var periodo = E.MESES[+m[2] - 1] + ' (1 al ' + (+m[3]) + ')';
+      var meses = Array.prototype.map.call(document.querySelectorAll('#fM input:checked'), function (i) { return i.value; });
+      if (!meses.length) return fail('Marque al menos un mes para el informe.');
       try { localStorage.setItem('pia-resp', resp); } catch (e) { /* nada */ }
       b.disabled = true; st.textContent = 'Leyendo archivos…';
       Promise.all([
@@ -283,14 +294,15 @@
         readTable(files.t, E.loadTipif).catch(function (e) { throw new Error('Tipificador: ' + e.message); })
       ]).then(function (res) {
         st.textContent = 'Calculando…';
-        var R = E.compute(res[0], res[1], Object.assign({}, filtros(), { corte: corte, nps: nps }));
-        if (!R.volumen.glpi) throw new Error('GLPI no tiene tickets abiertos entre el 1 y el ' + (+m[3]) + ' de ' + E.MESES[+m[2] - 1].toLowerCase() + '. Revise la fecha de descarga.');
-        if (!R.fijos.fcr.den) throw new Error('El Tipificador no tiene casos de "' + filtros().sucursal + '" en ' + E.MESES[+m[2] - 1].toLowerCase() + '.');
+        var R = E.compute(res[0], res[1], Object.assign({}, filtros(), { corte: corte, nps: nps, meses: meses }));
+        if (!R.volumen.glpi) throw new Error('GLPI no tiene tickets abiertos en los meses marcados (' + meses.map(nombreMes).join(', ') + ') hasta la fecha de descarga. Revise la fecha y los meses.');
+        if (!R.fijos.fcr.den) throw new Error('El Tipificador no tiene casos de "' + filtros().sucursal + '" en los meses marcados.');
+        var periodo = R.periodoTxt;
         if (!R.g.sgu.creados) throw new Error('GLPI no tiene tickets con "' + filtros().sguMarker + '" en el título.');
         st.textContent = 'Comprimiendo y guardando…';
-        var snap = E.snapshot(R); snap.v = 2; snap.vol = { glpi: R.volumen.glpi };
+        var snap = E.snapshot(R); snap.v = 3; snap.vol = { glpi: R.volumen.glpi };
         return gzip(empaquetar(res[0], res[1])).then(function (gz) {
-          return api('POST', 'cargas', { datos: u8ToB64(gz), corte: corte, periodo: periodo, responsable: resp, nps: nps, glpi_nombre: files.g.name, tip_nombre: files.t.name, resumen: snap });
+          return api('POST', 'cargas', { datos: u8ToB64(gz), corte: corte, periodo: periodo, responsable: resp, nps: nps, glpi_nombre: files.g.name, tip_nombre: files.t.name, resumen: snap, meses: meses });
         }).then(function (j) { CACHE[j.id] = { glpi: res[0], tip: res[1] }; return j.id; });
       }).then(function (id) {
         return cargarLista().then(function () { return activar(id); });
@@ -307,18 +319,33 @@
           return api('DELETE', 'cargas/' + id).then(function () { delete CACHE[id]; if (S.activa && S.activa.id === id) { S.activa = null; S.R = null; } toast('Carga eliminada.'); return cargarLista(); }).then(renderRepo, function (e) { toast(e.message, true); });
         }
         if (a === 'editar') {
+          var c = S.cargas.filter(function (x) { return x.id === id; })[0];
           if (btn.dataset.mode === 'save') {
             var body = {};
-            tr.querySelectorAll('td.ed input').forEach(function (i) { body[i.name] = i.value.trim(); });
-            return api('PATCH', 'cargas/' + id, body).then(function () { toast('Cambios guardados.'); return cargarLista(); }).then(renderRepo, function (e) { toast(e.message, true); });
+            tr.querySelectorAll('td.ed input.input').forEach(function (i) { body[i.name] = i.value.trim(); });
+            var mesesN = Array.prototype.map.call(tr.querySelectorAll('.meses input:checked'), function (i) { return i.value; });
+            if (!mesesN.length) { toast('Marque al menos un mes.', true); return; }
+            var antes = (c.meses && c.meses.length ? c.meses : [mesDeCorte(c.corte)]).slice().sort().join(',');
+            var cambiaMeses = mesesN.slice().sort().join(',') !== antes;
+            if (cambiaMeses) body.meses = mesesN;
+            btn.disabled = true;
+            return api('PATCH', 'cargas/' + id, body).then(cargarLista).then(function () {
+              if (!cambiaMeses || !esV2(c)) return;
+              delete CACHE[id];
+              return activar(id).then(function () { var snap = E.snapshot(S.R); snap.v = 3; snap.vol = { glpi: S.R.volumen.glpi }; return api('PATCH', 'cargas/' + id, { resumen: snap, periodo: S.R.periodoTxt }); }).then(cargarLista);
+            }).then(function () { toast('Cambios guardados.'); renderRepo(); }, function (e) { btn.disabled = false; toast(e.message, true); });
           }
-          var c = S.cargas.filter(function (x) { return x.id === id; })[0];
           tr.querySelectorAll('td.ed').forEach(function (td) { var f = td.getAttribute('data-f'); td.innerHTML = '<input class="input" name="' + f + '" value="' + esc(c[f] || '') + '" aria-label="' + f + '">'; });
+          var p0 = E.partsFromSerial(c.corte), sel = c.meses && c.meses.length ? c.meses : [mesDeCorte(c.corte)];
+          tr.cells[0].insertAdjacentHTML('beforeend', '<div class="row meses" style="margin-top:6px">' + opcionesMeses(p0.y, p0.mo).map(function (k) { return '<label class="chk"><input type="checkbox" value="' + k + '"' + (sel.indexOf(k) >= 0 ? ' checked' : '') + '> ' + nombreMes(k) + '</label>'; }).join('') + '</div>');
           btn.dataset.mode = 'save'; btn.textContent = 'Guardar'; btn.classList.add('primary');
         }
       });
     });
   }
+  function opcionesMeses(y, mo) { var out = []; for (var i = 0; i < 6; i++) { var yy = y, mm = mo - i; while (mm < 1) { mm += 12; yy--; } out.push(yy + '-' + (mm < 10 ? '0' : '') + mm); } return out; }
+  function mesDeCorte(x) { var p = E.partsFromSerial(x); return p.y + '-' + (p.mo < 10 ? '0' : '') + p.mo; }
+  function nombreMes(k) { return E.MESES[+k.slice(5) - 1] + ' ' + k.slice(0, 4); }
   function lastResp() { try { return localStorage.getItem('pia-resp') || 'Gabriela Silva'; } catch (e) { return 'Gabriela Silva'; } }
 
   /* ================= informe (estilo Power BI) ================= */
@@ -342,23 +369,27 @@
 
   function chipH(g) { return '<span class="gchip" style="background:' + GCOL[g] + '">' + esc(S.R.etiquetas[g]) + '</span>'; }
   function tile(cls, title, sub, body) { return '<div class="viz ' + cls + '"><h3>' + esc(title) + (sub ? '<small>' + esc(sub) + '</small>' : '') + '</h3>' + body + '</div>'; }
-  function kcard(title, tag, v, extra, note, chipG) {
-    return '<div class="viz card c4"><div class="t">' + esc(title) + (tag ? '<i>' + esc(tag) + '</i>' : '') + (chipG ? '<span style="float:right">' + chipH(chipG) + '</span>' : '') + '</div><div class="v">' + esc(v) + (extra ? '<small>' + esc(extra) + '</small>' : '') + '</div>' + (note ? '<div class="n">' + esc(note) + '</div>' : '') + '</div>';
+  function xa(x) { return x ? ' data-x="' + esc(JSON.stringify(x)) + '" tabindex="0"' : ''; }
+  function kcard(title, tag, v, extra, note, chipG, x) {
+    return '<div class="viz card c4' + (x ? ' xable' : '') + '"' + xa(x) + '><div class="t">' + esc(title) + (tag ? '<i>' + esc(tag) + '</i>' : '') + (chipG ? '<span style="float:right">' + chipH(chipG) + '</span>' : '') + '</div><div class="v">' + esc(v) + (extra ? '<small>' + esc(extra) + '</small>' : '') + '</div>' + (note ? '<div class="n">' + esc(note) + '</div>' : '') + '</div>';
   }
-  function kpar(title, tag, a, b, f) {
-    var half = function (g) { var x = f(g); return '<div class="half">' + chipH(g) + '<div class="v">' + esc(x.v) + (x.u ? '<small>' + esc(x.u) + '</small>' : '') + '</div><div class="n">' + esc(x.n || '') + '</div></div>'; };
+  function kpar(title, tag, a, b, f, xk) {
+    var half = function (g) { var x = f(g); return '<div class="half' + (xk ? ' xable' : '') + '"' + xa(xk ? { k: xk, g: g } : null) + '>' + chipH(g) + '<div class="v">' + esc(x.v) + (x.u ? '<small>' + esc(x.u) + '</small>' : '') + '</div><div class="n">' + esc(x.n || '') + '</div></div>'; };
     return '<div class="viz card c4"><div class="t">' + esc(title) + (tag ? '<i>' + esc(tag) + '</i>' : '') + '</div><div class="halves">' + half(a) + half(b) + '</div></div>';
   }
   function table(h1, h2, rows) {
     return '<div class="tbl"><table class="data"><thead><tr>' + h1 + '</tr>' + (h2 ? '<tr>' + h2 + '</tr>' : '') + '</thead><tbody>' + rows.map(function (r) {
-      return '<tr' + (r.tot ? ' class="tot"' : '') + '>' + r.cells.map(function (c, i) { return '<td' + (i ? ' class="n"' : '') + (i === 0 && r.bold ? ' style="font-weight:700"' : '') + '>' + esc(c).replace(/\n/g, '<br>') + '</td>'; }).join('') + '</tr>';
+      return '<tr' + (r.tot ? ' class="tot"' : '') + '>' + r.cells.map(function (c, i) {
+        var o = c !== null && typeof c === 'object' ? c : { v: c };
+        return '<td class="' + (i ? 'n' : '') + (o.x ? ' xable' : '') + '"' + xa(o.x) + (i === 0 && r.bold ? ' style="font-weight:700"' : '') + '>' + esc(o.v).replace(/\n/g, '<br>') + '</td>';
+      }).join('') + '</tr>';
     }).join('') + '</tbody></table></div>';
   }
   function h4(label, cols) {
     var L = S.R.etiquetasLargas;
     return { h1: '<th rowspan="2">' + label + '</th>' + GS.map(function (g) { return '<th colspan="' + cols.length + '">' + esc(L[g]) + '</th>'; }).join(''), h2: GS.map(function () { return cols.map(function (c) { return '<th>' + c + '</th>'; }).join(''); }).join('') };
   }
-  function tiempoRows(list) { return list.map(function (r) { return { tot: r.total, bold: r.negrita, cells: [r.label].concat(GS.reduce(function (a, g) { return a.concat([E.tickets(r[g].n), r[g].texto]); }, [])) }; }); }
+  function tiempoRows(list, t) { return list.map(function (r, ri) { return { tot: r.total, bold: r.negrita, cells: [r.label].concat(GS.reduce(function (a, g) { return a.concat([{ v: E.tickets(r[g].n), x: { k: 'cel', t: t, r: ri, g: g, m: 'n' } }, { v: r[g].texto, x: { k: 'cel', t: t, r: ri, g: g, m: 'texto' } }]); }, [])) }; }); }
   function dias(secs) { return secs >= 86400 ? (Math.round(secs / 8640) / 10).toLocaleString('es-VE') + ' d' : Math.round(secs / 3600) + ' h'; }
   function upTxt(g) { var u = S.R.g[g].upgrades, v = S.R.g[g].sva; return { v: num(u.n) + ' · ' + num(v.n), u: 'upgrades · SVA', n: (!u.n && u.cambiosPlan && u.bajas === u.cambiosPlan) ? u.cambiosPlan + ' cambio(s) de plan, todos a un plan menor' : num(u.cambiosPlan) + ' cambios de plan en GLPI' }; }
 
@@ -369,54 +400,57 @@
     if (i === 0) {
       var a = CMPS[cmpIdx][0], b = CMPS[cmpIdx][1], cmp = R.comparativos[CMPS[cmpIdx][2]];
       body = (S.pdfMode ? '' : '<div class="c12 seg" role="group" aria-label="Comparación">' + CMPS.map(function (c, k) { return '<button type="button" data-cmp="' + k + '" aria-pressed="' + (k === cmpIdx) + '">' + c[3] + '</button>'; }).join('') + '</div>') +
-        kcard('Índice de resolución PIA', '', pct(F.ir.pct), num(F.ir.num) + ' casos', 'de ' + num(F.ir.den) + ' casos: GLPI San Agustín + resueltos en 1er contacto + consultas de estatus', 'pia') +
-        kcard('Resolución en 1er contacto (FCR)', '', pct(F.fcr.pct), num(F.fcr.n) + ' casos', 'de los ' + num(F.fcr.den) + ' casos tipificados por el PIA en ' + R.periodo.toLowerCase(), 'pia') +
-        kcard('Productividad del punto PIA', '', num(F.productividad.casos) + ' casos', num(F.productividad.abonados) + ' abonados', 'casos tipificados; ' + num(F.productividad.escalados) + ' escalados a GLPI', 'pia') +
-        kpar('Cerrados en la misma semana que se abrieron', '', a, b, function (g) { var x = G[g].semana; return { v: pct(x.pct), n: num(x.cerradosMisma) + ' de ' + num(x.abiertos) + ' abiertos (' + R.ventana.corta + ')' }; }) +
-        kcard('Satisfacción / NPS', 'Trimestral', F.nps || '—', '', F.nps ? '' : 'sin medición en este corte (se carga en el Repositorio con Editar)') +
-        kpar('Reincidencia de fallas FTTH', '', a, b, function (g) { var x = G[g].reinc; return { v: num(x.abonados), u: 'abonados', n: num(x.tickets) + ' tickets · ' + pct(x.pct) + ' de ' + num(x.ftth) + ' FTTH' }; }) +
-        '<div class="viz card c4"><div class="t">Comparativo ' + esc(L[a]) + ' vs. ' + esc(L[b]) + '<i>Mensual</i></div><div class="v">' + esc(cmp.valor) + '</div>' + (cmp.ganador ? '<div class="n" style="color:var(--ink)">a favor de ' + chipH(cmp.ganador) + '</div>' : '') + '<div class="n">' + esc(cmp.detalle) + '</div></div>' +
-        kpar('Upgrades y SVA', 'Mensual', a, b, upTxt) +
-        kpar('Tiempo promedio de resolución', '', a, b, function (g) { return { v: E.fmtD(G[g].prom), n: num(G[g].solucionados) + ' tickets resueltos' + (G[g].moda !== null ? ' · moda ' + E.fmtD(G[g].moda) : '') }; }) +
+        kcard('Índice de resolución PIA', '', pct(F.ir.pct), num(F.ir.num) + ' casos', num(F.ir.fcr) + ' resueltos en 1er contacto + ' + num(F.ir.escResueltos) + ' escalados con solución en GLPI, de ' + num(F.ir.den) + ' casos del PIA', 'pia', { k: 'ir' }) +
+        kcard('Resolución en 1er contacto (FCR)', '', pct(F.fcr.pct), num(F.fcr.n) + ' casos', 'de los ' + num(F.fcr.den) + ' casos únicos tipificados por el PIA', 'pia', { k: 'fcr' }) +
+        kcard('Productividad del punto PIA', '', num(F.productividad.casos) + ' casos', num(F.productividad.abonados) + ' abonados', 'casos únicos tipificados por ' + R.cfg.sucursal + (F.productividad.duplicados ? ' (' + num(F.productividad.duplicados) + ' duplicados excluidos)' : '') + '; abonados = cédulas distintas', 'pia', { k: 'prod' }) +
+        kpar('Cerrados en la misma semana que se abrieron', '', a, b, function (g) { var x = G[g].semana; return { v: pct(x.pct), n: num(x.cerradosMisma) + ' de ' + num(x.abiertos) + ' abiertos (' + R.ventana.corta + ')' }; }, 'semana') +
+        kcard('Satisfacción / NPS', 'Trimestral', F.nps || '—', '', F.nps ? '' : 'sin medición en este corte (se carga en el Repositorio con Editar)', null, { k: 'nps' }) +
+        kpar('Reincidencia de fallas FTTH', '', a, b, function (g) { var x = G[g].reinc; return { v: num(x.abonados), u: 'abonados', n: num(x.tickets) + ' tickets · ' + pct(x.pct) + ' de ' + num(x.ftth) + ' FTTH' }; }, 'reinc') +
+        '<div class="viz card c4 xable"' + xa({ k: 'cmp', id: CMPS[cmpIdx][2] }) + '><div class="t">Comparativo ' + esc(L[a]) + ' vs. ' + esc(L[b]) + '<i>Mensual</i></div><div class="v">' + esc(cmp.valor) + '</div>' + (cmp.ganador ? '<div class="n" style="color:var(--ink)">a favor de ' + chipH(cmp.ganador) + '</div>' : '') + '<div class="n">' + esc(cmp.detalle) + '</div></div>' +
+        kpar('Upgrades y SVA', 'Mensual', a, b, upTxt, 'upgrades') +
+        kpar('Tiempo promedio de resolución', '', a, b, function (g) { return { v: E.fmtD(G[g].prom), n: num(G[g].solucionados) + ' tickets resueltos' + (G[g].moda !== null ? ' · moda ' + E.fmtD(G[g].moda) : '') }; }, 'prom') +
         tile('c6', 'Tiempo promedio de resolución', 'por grupo', C.hbars({ title: 'Promedio por grupo', labels: GS.map(function (g) { return L[g]; }), labelW: 160, series: [{ name: 'Promedio', color: COLORS.brand, values: GS.map(function (g) { return G[g].prom || 0; }) }], fmt: function (v) { return E.fmtD(v); } })) +
         tile('c6', 'Creados y solucionados', 'en el período', C.hbars({ title: 'Creados y solucionados', labels: ['PIA', 'SGU otras unidades', 'SGU total'], labelW: 160, series: [{ name: 'Creados', color: COLORS.grey, values: [G.pia.creados, G.otras.creados, G.sgu.creados] }, { name: 'Solucionados', color: COLORS.brand, values: [G.pia.solucionados, G.otras.solucionados, G.sgu.solucionados] }], fmt: num }));
     } else if (i === 1) {
       var cats = R.tiempoCategoria.filter(function (r) { return !r.total; });
       var hh = h4('Categoría', ['Tickets resueltos', 'Moda o promedio']);
-      body = tile('c12', 'Tiempo de resolución por categoría', 'M: moda (valor más repetido, redondeado a la hora) · P: promedio · solo tickets resueltos', table(hh.h1, hh.h2, tiempoRows(R.tiempoCategoria))) +
+      body = tile('c12', 'Tiempo de resolución por categoría', 'M: moda (valor más repetido, redondeado a la hora) · P: promedio · solo tickets resueltos', table(hh.h1, hh.h2, tiempoRows(R.tiempoCategoria, 'tiempoCategoria'))) +
         tile('c12', 'Promedio por categoría', 'SGU total vs. país', C.hbars({ title: 'Promedio por categoría', labels: cats.map(function (r) { return E.catCorta(r.label); }), labelW: 220, series: [{ name: 'SGU total', color: COLORS.hot, values: cats.map(function (r) { return r.sgu.prom || 0; }) }, { name: 'País', color: COLORS.brand, values: cats.map(function (r) { return r.pais.prom || 0; }) }], fmt: dias }));
     } else if (i === 2) {
       var hg = h4('Grupo técnico', ['Tickets resueltos', 'Moda o promedio']);
-      body = tile('c12', 'Tiempo de resolución por grupo técnico', 'M: moda · P: promedio · solo tickets resueltos', table(hg.h1, hg.h2, tiempoRows(R.tiempoGrupo)));
+      body = tile('c12', 'Tiempo de resolución por grupo técnico', 'M: moda · P: promedio · solo tickets resueltos', table(hg.h1, hg.h2, tiempoRows(R.tiempoGrupo, 'tiempoGrupo')));
     } else if (i === 3) {
       var hp = h4('Categoría', ['Creados', 'Solucionados']);
       var c = function (v) { return v === null || v === undefined ? '' : E.tickets(v); };
       var ps = R.productividad.filter(function (r) { return !r.total && !r.estatus; });
-      body = tile('c12', 'Productividad por categoría', 'la primera fila son consultas del Tipificador que no generan ticket', table(hp.h1, hp.h2, R.productividad.map(function (r) { return { tot: r.total, cells: [r.label].concat(GS.reduce(function (a, g) { return a.concat([c(r[g].creados), c(r[g].solucionados)]); }, [])) }; }))) +
+      body = tile('c12', 'Productividad por categoría', 'la primera fila son consultas del Tipificador que no generan ticket', table(hp.h1, hp.h2, R.productividad.map(function (r, ri) { return { tot: r.total, cells: [r.label].concat(GS.reduce(function (a, g) { return a.concat([{ v: c(r[g].creados), x: r[g].creados === null ? null : { k: 'prodcel', r: ri, g: g, m: 'creados' } }, { v: c(r[g].solucionados), x: r[g].solucionados === null ? null : { k: 'prodcel', r: ri, g: g, m: 'solucionados' } }]); }, [])) }; }))) +
         tile('c12', 'Tickets creados por categoría', 'PIA y SGU otras unidades', C.hbars({ title: 'Creados por categoría', labels: ps.map(function (r) { return E.catCorta(r.label); }), labelW: 220, series: [{ name: 'PIA', color: COLORS.hot, values: ps.map(function (r) { return r.pia.creados; }) }, { name: 'SGU otras unidades', color: COLORS.brand, values: ps.map(function (r) { return r.otras.creados; }) }], fmt: num }));
     } else if (i === 4) {
       var RI = R.reincidencia, rc = Object.keys(RI.porCategoria).sort(function (x, y) { return RI.porCategoria[y] - RI.porCategoria[x]; });
-      body = GS.map(function (g) { var x = G[g].reinc; return '<div class="viz card c3"><div class="t">Reincidencia FTTH ' + chipH(g) + '</div><div class="v">' + num(x.abonados) + '<small>abonados</small></div><div class="n">' + num(x.tickets) + ' tickets · ' + pct(x.pct) + ' de ' + num(x.ftth) + ' FTTH</div></div>'; }).join('') +
+      body = GS.map(function (g) { var x = G[g].reinc; return '<div class="viz card c3 xable"' + xa({ k: 'reinc', g: g }) + '><div class="t">Reincidencia FTTH ' + chipH(g) + '</div><div class="v">' + num(x.abonados) + '<small>abonados</small></div><div class="n">' + num(x.tickets) + ' tickets · ' + pct(x.pct) + ' de ' + num(x.ftth) + ' FTTH</div></div>'; }).join('') +
         tile('c5', 'Categorías de los tickets reincidentes', 'SGU total', rc.length ? C.hbars({ title: 'Reincidencia por categoría', labels: rc, labelW: 170, series: [{ name: 'Tickets', color: COLORS.brand, values: rc.map(function (k) { return RI.porCategoria[k]; }) }], fmt: num }) : '<p class="hint">Sin reincidencias.</p>') +
         tile('c7', 'Cuentas reincidentes FTTH', 'SGU total · por número de cuenta del título' + (R.reincExcluidas.length ? ' · no cuentan: ' + R.reincExcluidas.map(function (c) { return E.catCorta(c).toLowerCase(); }).join(', ') : ''), table('<th>Cliente</th><th>Cuenta</th><th>Categorías</th><th>Tickets</th>', '', RI.detalle.length ? RI.detalle.map(function (d) { return { cells: [d.nombre, d.cuenta, d.categorias.join('\n'), d.tickets.map(function (t) { return t.id + (t.pia ? ' (PIA)' : ''); }).join('\n')] }; }) : [{ cells: ['Sin reincidencias', '', '', ''] }]));
     } else if (i === 5 || i === 6) {
       var semana = i === 5;
       var cols = semana ? ['Abiertos', 'Pendientes', 'Resueltos', 'Pend. acum.', 'Resuelto acum.', '% jornada'] : ['Abiertos', 'Pendientes', 'Resueltos mismo día', '% jornada'];
-      var fila = function (f) { return semana ? [num(f.abiertos), num(f.pendientes), num(f.resueltos), num(f.pendAcc), num(f.resAcc), pct(f.pct)] : [num(f.abiertos), num(f.pendientes), num(f.mismoDia), pct(f.pct)]; };
+      var fila = function (f, g, d) {
+        var cs = semana ? [['abiertos', num(f.abiertos)], ['pendientes', num(f.pendientes)], ['resueltos', num(f.resueltos)], ['pendAcc', num(f.pendAcc)], ['resAcc', num(f.resAcc)], ['pct', pct(f.pct)]] : [['abiertos', num(f.abiertos)], ['pendientes', num(f.pendientes)], ['mismoDia', num(f.mismoDia)], ['pct', pct(f.pct)]];
+        return cs.map(function (c) { return { v: c[1], x: { k: 'jor', g: g, d: d, c: c[0] } }; });
+      };
       var jt = function (a, b) {
         var h1 = '<th rowspan="2">Día</th><th rowspan="2">Fecha</th><th colspan="' + cols.length + '">' + esc(R.etiquetasLargas[a]) + '</th><th colspan="' + cols.length + '">' + esc(R.etiquetasLargas[b]) + '</th>';
         var h2 = cols.concat(cols).map(function (c) { return '<th>' + c + '</th>'; }).join('');
-        var rows = G[a].jornada.filas.map(function (f, k) { return { cells: [f.dia, f.fecha.slice(0, 5)].concat(fila(f), fila(G[b].jornada.filas[k])) }; });
-        rows.push({ tot: true, cells: ['Total semanal', ''].concat(fila(G[a].jornada.total), fila(G[b].jornada.total)) });
+        var rows = G[a].jornada.filas.map(function (f, k) { return { cells: [f.dia, f.fecha.slice(0, 5)].concat(fila(f, a, k), fila(G[b].jornada.filas[k], b, k)) }; });
+        rows.push({ tot: true, cells: ['Total semanal', ''].concat(fila(G[a].jornada.total, a, -1), fila(G[b].jornada.total, b, -1)) });
         return table(h1, h2, rows);
       };
       var J = G.sgu.jornada.filas, lab = J.map(function (f) { return f.dia.slice(0, 3) + ' ' + f.fechaCorta; });
       body = tile('c12', (semana ? 'Tickets abiertos y solucionados' : 'Abiertos y solucionados el mismo día') + ' · SGU total vs. país', R.ventana.desde + ' al ' + R.ventana.hasta, jt('sgu', 'pais')) +
         tile('c12', (semana ? 'Tickets abiertos y solucionados' : 'Abiertos y solucionados el mismo día') + ' · PIA vs. SGU otras unidades', R.ventana.desde + ' al ' + R.ventana.hasta, jt('pia', 'otras'));
       if (semana) body += tile('c12', 'Abiertos vs. resueltos por día', 'SGU total', C.columns({ title: 'Abiertos vs resueltos', labels: lab, series: [{ name: 'Abiertos', color: '#B28DE0', values: J.map(function (f) { return f.abiertos; }) }, { name: 'Resueltos', color: COLORS.brand, values: J.map(function (f) { return f.resueltos; }) }] }));
-      else body += tile('c12', 'Gestión en la última semana', R.ventana.desde + ' al ' + R.ventana.hasta + ' · cerrados = fecha de cierre dentro de la semana', table('<th>Grupo</th><th>Abiertos</th><th>Resueltos</th><th>Cerrados</th><th>Resueltos el mismo día</th><th>% jornada</th>', '', GS.map(function (g) { var x = G[g].gestion; return { cells: [L[g], num(x.abiertos), num(x.resueltos), num(x.cerrados), num(x.mismoDia), pct(x.pct)] }; })));
+      else body += tile('c12', 'Gestión en la última semana', R.ventana.desde + ' al ' + R.ventana.hasta + ' · cerrados = fecha de cierre dentro de la semana', table('<th>Grupo</th><th>Abiertos</th><th>Resueltos</th><th>Cerrados</th><th>Resueltos el mismo día</th><th>% jornada</th>', '', GS.map(function (g) { var x = G[g].gestion; return { cells: [L[g], { v: num(x.abiertos), x: { k: 'gestion', g: g, c: 'abiertos' } }, { v: num(x.resueltos), x: { k: 'gestion', g: g, c: 'resueltos' } }, { v: num(x.cerrados), x: { k: 'gestion', g: g, c: 'cerrados' } }, { v: num(x.mismoDia), x: { k: 'gestion', g: g, c: 'mismo' } }, { v: pct(x.pct), x: { k: 'gestion', g: g, c: 'pct' } }] }; })));
     } else if (i === 7) {
-      body = GS.map(function (g) { var u = G[g].upgrades, v = G[g].sva; return '<div class="viz card c3"><div class="t">' + chipH(g) + '</div><div class="v">' + num(u.n) + '<small>upgrades</small></div><div class="v" style="font-size:22px">' + num(v.n) + '<small>SVA</small></div><div class="n">' + num(u.cambiosPlan) + ' cambios de plan en GLPI · ' + num(u.bajas) + ' a un plan menor o revertidos</div></div>'; }).join('') +
+      body = GS.map(function (g) { var u = G[g].upgrades, v = G[g].sva; return '<div class="viz card c3"><div class="t">' + chipH(g) + '</div><div class="v xable"' + xa({ k: 'upgrades', g: g }) + '>' + num(u.n) + '<small>upgrades</small></div><div class="v xable" style="font-size:22px"' + xa({ k: 'sva', g: g }) + '>' + num(v.n) + '<small>SVA</small></div><div class="n">' + num(u.cambiosPlan) + ' cambios de plan en GLPI · ' + num(u.bajas) + ' a un plan menor o revertidos</div></div>'; }).join('') +
         tile('c12', 'Detalle', 'upgrade = aumento de plan VNET (200, 400, 600, 1 Giga); SVA = activación de Pley o ExitLag', table('<th>Grupo</th><th>Upgrades en GLPI</th><th>Aumentos en Tipificador</th><th>Repetidos (en ambas fuentes)</th><th>SVA en GLPI</th><th>SVA en Tipificador</th>', '',
           GS.map(function (g) { var u = G[g].upgrades, v = G[g].sva; return { cells: [L[g], u.glpi.join(', ') || '-', num(u.tip), num(u.repetidos), v.glpi.join(', ') || '-', num(v.tip)] }; }))) +
         tile('c12', 'Cambios de plan revertidos', 'no cuentan como upgrade', table('<th>Ticket</th><th>Extracto</th>', '', R.controles.reversiones.length ? R.controles.reversiones.map(function (x) { return { cells: [x.id, x.extracto] }; }) : [{ cells: ['-', 'Ninguno'] }]));
@@ -424,6 +458,8 @@
       var K = R.controles;
       var ctl = function (n, titulo, cnt, detalle) { return tile('c12', n + '. ' + titulo, cnt, detalle || ''); };
       body = ctl(1, 'Tipificador fuera de período', num(K.tipFuera.n) + ' filas descartadas (' + num(K.tipFuera.sa) + ' de ' + R.cfg.sucursal + ')') +
+        ctl('1b', 'Casos duplicados del PIA (Tipificador)', num(K.tipDuplicados.length) + ' filas excluidas: misma categoría, subcategoría, motivo, fecha y cédula', K.tipDuplicados.length ? table('<th>ID</th><th>Duplica a</th><th>Fecha</th><th>Cédula</th><th>Categoría</th><th>Subcategoría</th><th>Motivo</th><th>Estatus</th>', '', K.tipDuplicados.map(function (x) { return { cells: [x.id, x.original, x.fecha, x.cedula, x.categoria, x.subcategoria, x.motivo, x.estatus] }; })) : '') +
+        ctl('1c', 'Escalados del PIA sin ticket en GLPI', num(K.escaladosSinCruce.length) + ' casos escalados sin número de ticket o con un número que no está en el archivo de GLPI (no suman al índice de resolución)', K.escaladosSinCruce.length ? table('<th>ID</th><th>Ticket GLPI</th><th>Fecha</th><th>Cédula</th><th>Subcategoría</th>', '', K.escaladosSinCruce.map(function (x) { return { cells: [x.id, x.ticket, x.fecha, x.cedula, x.subcategoria] }; })) : '') +
         ctl(2, 'Categorías homologadas', num(K.homologadas.length) + ' tickets con ">" o "<" al final (la lista completa está en el Excel)', K.homologadas.length ? table('<th>Categoría original</th><th>Homologada</th><th>Tickets</th>', '', (function () { var m = {}; K.homologadas.forEach(function (x) { var k = x.de + '\u0000' + x.a; m[k] = (m[k] || 0) + 1; }); return Object.keys(m).map(function (k) { var p = k.split('\u0000'); return { cells: [p[0], p[1], num(m[k])] }; }); })()) : '') +
         ctl(3, 'Posibles duplicados (SGU)', num(K.posiblesDuplicados.length) + ' pares: misma cuenta y categoría, abiertos a menos de 60 minutos', K.posiblesDuplicados.length ? table('<th>Cuenta</th><th>Categoría</th><th>Tickets</th><th>Minutos</th>', '', K.posiblesDuplicados.map(function (x) { return { cells: [x.cuenta, x.cat, x.ids.join(' y '), x.minutos] }; })) : '') +
         ctl(4, 'Nombres inconsistentes (SGU)', num(K.nombres.length) + ' casos', K.nombres.length ? table('<th>Cuenta</th><th>Ticket</th><th>Tipo</th><th>Nombre en el título</th><th>"Nombre Cliente"</th>', '', K.nombres.map(function (x) { return { cells: [x.cuenta, x.id, x.tipo, x.titulo, x.campo] }; })) : '') +
@@ -485,6 +521,67 @@
     document.getElementById('xXls').addEventListener('click', exportExcel);
     document.getElementById('xPdf').addEventListener('click', exportInformePdf);
     bindFilterPane(renderInforme);
+    var canvas = document.getElementById('canvas');
+    canvas.addEventListener('click', function (ev) { var el = ev.target.closest('[data-x]'); if (el && !ev.target.closest('button')) menuLogica(ev, el); });
+    canvas.addEventListener('keydown', function (ev) { if ((ev.key === 'Enter' || ev.key === ' ') && ev.target.matches('[data-x]')) { ev.preventDefault(); var r = ev.target.getBoundingClientRect(); menuLogica({ clientX: r.left + 10, clientY: r.bottom }, ev.target); } });
+  }
+
+  /* ================= "Ver lógica del cálculo" ================= */
+  function cerrarMenu() { var m = document.querySelector('.xmenu'); if (m) m.remove(); document.removeEventListener('mousedown', fueraMenu, true); }
+  function fueraMenu(e) { if (!e.target.closest('.xmenu')) cerrarMenu(); }
+  function menuLogica(ev, el) {
+    cerrarMenu();
+    var x; try { x = JSON.parse(el.getAttribute('data-x')); } catch (e) { return; }
+    var m = document.createElement('div');
+    m.className = 'xmenu'; m.setAttribute('role', 'menu');
+    m.innerHTML = '<button type="button" role="menuitem">' + ICONS.filter.replace(/M2 3h12l-4.6 5.4V13L6.6 14V8.4z/, 'M3 2.5h7l3 3v8H3zM5.5 8h5M5.5 10.5h5') + 'Ver lógica del cálculo</button>';
+    document.body.appendChild(m);
+    var w = m.offsetWidth, h = m.offsetHeight;
+    m.style.left = Math.min(ev.clientX, window.innerWidth - w - 12) + 'px';
+    m.style.top = Math.min(ev.clientY + 6, window.innerHeight - h - 12) + 'px';
+    var b = m.querySelector('button');
+    b.addEventListener('click', function () { cerrarMenu(); abrirLogica(x, el); });
+    b.focus();
+    m.addEventListener('keydown', function (e) { if (e.key === 'Escape') { cerrarMenu(); el.focus(); } });
+    setTimeout(function () { document.addEventListener('mousedown', fueraMenu, true); }, 0);
+  }
+  function abrirLogica(x, origen) {
+    var e;
+    try { e = S.R.explicar(x); } catch (err) { toast('No se pudo explicar este valor: ' + err.message, true); return; }
+    var R = S.R, ov = document.createElement('div');
+    ov.className = 'logic'; ov.setAttribute('role', 'dialog'); ov.setAttribute('aria-modal', 'true');
+    var regs = (e.registros || []).filter(Boolean);
+    var tablaReg = function (r, i) {
+      var max = 200, filas = r.filas.slice(0, max);
+      return '<details' + (i === 0 ? ' open' : '') + '><summary>' + esc(r.titulo) + ' · <b>' + num(r.filas.length) + '</b> registros</summary>' +
+        (r.filas.length ? '<div class="tbl"><table class="data list"><thead><tr>' + r.cols.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+          filas.map(function (f) { return '<tr>' + f.map(function (v) { return '<td>' + esc(v) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>' +
+          (r.filas.length > max ? '<p class="hint">Se muestran ' + max + ' de ' + num(r.filas.length) + '. La descarga trae todos.</p>' : '') : '<p class="hint">No hay registros.</p>') + '</details>';
+    };
+    ov.innerHTML = '<div class="logic-card"><div class="logic-h"><div><div class="lbl">Lógica del cálculo</div><h2>' + esc(e.titulo) + '</h2><div class="logic-v">' + esc(e.valor) + '</div></div><button type="button" class="btn sm" data-r="close">Cerrar</button></div>' +
+      '<div class="logic-b">' +
+      (e.definicion ? '<section><h3>Qué mide</h3><p>' + esc(e.definicion) + '</p></section>' : '') +
+      (e.filtros.length ? '<section><h3>Datos y filtros que se aplican</h3><ul>' + e.filtros.map(function (f) { return '<li>' + esc(f) + '</li>'; }).join('') + '</ul></section>' : '') +
+      (e.pasos.length ? '<section><h3>Cálculo paso a paso</h3><ol>' + e.pasos.map(function (f) { return '<li>' + esc(f) + '</li>'; }).join('') + '</ol></section>' : '') +
+      (regs.length ? '<section><h3>Registros usados</h3><p class="hint">Con esta lista cualquier persona puede repetir el cálculo en los archivos originales.</p>' + regs.map(tablaReg).join('') + '</section>' : '') +
+      '<p class="hint">Carga: corte ' + esc(R.corteTxt) + ' · período ' + esc(R.periodoTxt) + ' · ' + esc(R.fuentesTxt) + '.</p></div>' +
+      '<div class="logic-f">' + (regs.length ? '<button type="button" class="btn primary" data-r="xls">' + ICONS.down + 'Descargar explicación y registros (Excel)</button>' : '') + '<button type="button" class="btn" data-r="close">Cerrar</button></div></div>';
+    document.body.appendChild(ov);
+    var cerrar = function () { document.removeEventListener('keydown', tecla); ov.remove(); if (origen && origen.focus) origen.focus(); };
+    var tecla = function (k) { if (k.key === 'Escape') cerrar(); };
+    document.addEventListener('keydown', tecla);
+    ov.addEventListener('click', function (k) { if (k.target === ov) cerrar(); });
+    Array.prototype.forEach.call(ov.querySelectorAll('[data-r="close"]'), function (b) { b.addEventListener('click', cerrar); });
+    var xb = ov.querySelector('[data-r="xls"]');
+    if (xb) xb.addEventListener('click', function () {
+      var wb = XLSX.utils.book_new();
+      var ex = [['Lógica del cálculo'], ['Indicador', e.titulo], ['Valor', e.valor], ['Carga', 'Corte ' + R.corteTxt + ' · ' + R.periodoTxt], [], ['Qué mide'], [e.definicion], [], ['Datos y filtros']].concat(e.filtros.map(function (f) { return [f]; })).concat([[], ['Cálculo paso a paso']]).concat(e.pasos.map(function (f, i) { return [(i + 1) + '. ' + f]; }));
+      var ws = XLSX.utils.aoa_to_sheet(ex); ws['!cols'] = [{ wch: 120 }, { wch: 40 }]; XLSX.utils.book_append_sheet(wb, ws, 'Explicación');
+      regs.forEach(function (r, i) { var w = XLSX.utils.aoa_to_sheet([r.cols].concat(r.filas)); XLSX.utils.book_append_sheet(wb, w, (i + 1 + '. ' + r.titulo).replace(/[\\\/?*\[\]:]/g, ' ').slice(0, 31)); });
+      var buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      saveBlob(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), 'Logica - ' + e.titulo.replace(/[\\\/:*?"<>|]/g, ' ').slice(0, 80) + '.xlsx');
+    });
+    ov.querySelector('[data-r="close"]').focus();
   }
   function controlesAlerta(R) { var K = R.controles; return K.posiblesDuplicados.length || K.nombres.length || K.piaFueraSGU.length || K.planIndefinido.length || !K.totales.every(function (x) { return x.ok; }); }
 
@@ -539,9 +636,9 @@
     var segs = GS.map(function (g) { return LL[g]; });
     var ind = [['Reporte PIA · SGU vs País'], ['Responsable', R.responsable || ''], ['Período', R.periodoTxt + ' ' + R.anio], ['Fecha de corte', R.corteTxt], ['Fuentes', R.fuentesTxt], ['Semana', R.ventana.desde + ' al ' + R.ventana.hasta], [],
       ['Indicadores fijos (PIA)', 'Valor', 'Detalle'],
-      ['Índice de resolución PIA', F.ir.pct, F.ir.num + ' de ' + F.ir.den + ' casos'],
+      ['Índice de resolución PIA', F.ir.pct, '(' + F.ir.fcr + ' en 1er contacto + ' + F.ir.escResueltos + ' escalados con solución en GLPI) de ' + F.ir.den + ' casos'],
       ['Resolución en 1er contacto (FCR)', F.fcr.pct, F.fcr.n + ' de ' + F.fcr.den + ' casos tipificados'],
-      ['Productividad del punto PIA', F.productividad.casos, F.productividad.abonados + ' abonados · ' + F.productividad.escalados + ' escalados a GLPI'],
+      ['Productividad del punto PIA', F.productividad.casos, F.productividad.abonados + ' abonados (cédulas distintas) · ' + F.productividad.duplicados + ' duplicados excluidos de ' + F.productividad.bruto + ' filas'],
       ['Consultas de estatus', F.estatus, 'Subcategoría "Estatus de un ticket de reporte" sin FCR'],
       ['Satisfacción / NPS', F.nps || '', ''], [],
       ['Indicador'].concat(segs)];

@@ -22,16 +22,20 @@ else { g = E.loadGLPI(require(path.resolve(args[0]))); t = E.loadTipif(require(p
 // La sección 9 se calculó con todas las categorías FTTH en reincidencia: se verifica igual (reincExcluir vacío).
 const R=E.compute(g,t,{corte:E.serialFromParts(2026,10,28,10,0,0),reincExcluir:[]});
 const R2=E.compute(g,t,{corte:E.serialFromParts(2026,10,28,10,0,0)});
+// Indicadores del Tipificador con las reglas del 29/10 (duplicados por categoría, subcategoría, motivo, fecha y cédula;
+// abonados = cédulas distintas; índice = FCR + escalados con fecha de solución en GLPI, cruzados por "Ticket GLPI").
+// Valores verificados por separado sobre el archivo del 28/10.
+const TIP_ESPERADO='140/136', FCR_ESPERADO='44% 60/136', IR_ESPERADO='84% 114/136', PROD_ESPERADO='136/118';
 let pass=0,fail=0;
 function chk(name,got,exp){ const ok=String(got)===String(exp); ok?pass++:fail++; console.log((ok?'OK  ':'FAIL')+' '+name+' → '+got+(ok?'':'   (esperado '+exp+')')); }
 const G=R.g, L=['pia','otras','sgu','pais'];
 chk('GLPI período',R.volumen.glpi,11485);
 chk('Volúmenes SGU/PIA/otras/país',[G.sgu.creados,G.pia.creados,G.otras.creados,G.pais.creados].join('/'),'223/61/162/11262');
-chk('Tip SGU oct',R.fijos.fcr.den,140); chk('Tip SA fuera',R.controles.tipFuera.sa,97);
-chk('IR',`${E.pct(R.fijos.ir.pct)} ${R.fijos.ir.num}/${R.fijos.ir.den}`,'85% 275/323');
-chk('FCR',`${E.pct(R.fijos.fcr.pct)} ${R.fijos.fcr.n}/${R.fijos.fcr.den}`,'44% 62/140');
-chk('Productividad',[R.fijos.productividad.casos,R.fijos.productividad.abonados,R.fijos.productividad.escalados].join('/'),'140/120/61');
-chk('Estatus',R.fijos.estatus,38);
+chk('Tip SGU oct (filas / únicos)',R.fijos.productividad.bruto+'/'+R.fijos.productividad.casos,TIP_ESPERADO); chk('Tip SA fuera',R.controles.tipFuera.sa,97);
+chk('IR (regla 29/10: FCR + escalados con solución en GLPI ÷ casos únicos)',`${E.pct(R.fijos.ir.pct)} ${R.fijos.ir.num}/${R.fijos.ir.den}`,IR_ESPERADO);
+chk('FCR (sin duplicados)',`${E.pct(R.fijos.fcr.pct)} ${R.fijos.fcr.n}/${R.fijos.fcr.den}`,FCR_ESPERADO);
+chk('Productividad (casos únicos / cédulas distintas)',[R.fijos.productividad.casos,R.fijos.productividad.abonados].join('/'),PROD_ESPERADO);
+chk('Estatus (sin duplicados; la sección 9 decía 38 con duplicados)',R.fijos.estatus,36);
 const exp={creSol:['61/57','162/118','223/175','11262/10434'],prom:['4 días 11 h','3 días 21 h','4 días 2 h','2 días 13 h'],moda:['3 días 6 h','1 h','1 h','0 h'],
  semana:['78% 7/9','39% 27/70','43% 34/79','68% 2033/2973'],reinc:['2/4','10/22','22/46','960/2053'],ups:['0·0','1·1','1·1','14·8'],mismo:['33% 3/9','9% 6/70','11% 9/79','26% 768/2973']};
 L.forEach((k,i)=>{const x=G[k];

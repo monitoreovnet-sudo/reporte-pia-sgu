@@ -56,7 +56,9 @@ Cada vez que se suba un cambio al repositorio, Cloudflare publica la nueva versi
 
 Implementa la especificación de octubre 2026 (`prompt_reporte_pia_sgu.md`):
 
-- **Período:** GLPI por fecha de apertura del día 1 a la fecha de descarga; Tipificador solo del mes.
+- **Período:** en el Repositorio se marcan los meses del informe (por defecto, el mes de la descarga). GLPI se filtra por fecha de apertura y el Tipificador por fecha, en esos meses y hasta la descarga. Se puede cambiar después con "Editar".
+- **Tipificador (PIA):** productividad = casos únicos de San Agustín; duplicado = misma categoría, subcategoría, motivo, fecha y cédula. Abonados = cédulas distintas. FCR = resueltos en 1er contacto ÷ productividad. Índice de resolución PIA = (resueltos en 1er contacto + escalados cuyo "Ticket GLPI" tiene fecha de solución en GLPI) ÷ productividad.
+- **Ver lógica del cálculo:** en el Informe, al hacer clic en un indicador o en una celda de tabla se abre la explicación del cálculo con los filtros, los pasos y los registros usados, descargables en Excel.
 - **Semana:** los 8 días anteriores a la fecha de descarga.
 - **Tiempos:** "moda o promedio" (moda redondeada a la hora, con 2 o más repeticiones).
 - **Reincidencia FTTH:** por número de cuenta del título, dentro de cada grupo. Por defecto no cuentan ajuste de facturación, reembolso ni cambio de plan; se cambia con el filtro "Problemas de reincidencia" del Informe.
