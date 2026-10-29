@@ -61,7 +61,7 @@ Implementa la especificación de octubre 2026 (`prompt_reporte_pia_sgu.md`):
 - **Ver lógica del cálculo:** en el Informe, al hacer clic en un indicador o en una celda de tabla se abre la explicación del cálculo con los filtros, los pasos y los registros usados, descargables en Excel.
 - **Semana:** los 8 días anteriores a la fecha de descarga.
 - **Tiempos:** "moda o promedio" (moda redondeada a la hora, con 2 o más repeticiones).
-- **Reincidencia FTTH:** por número de cuenta del título, dentro de cada grupo. Por defecto no cuentan ajuste de facturación, reembolso ni cambio de plan; se cambia con el filtro "Problemas de reincidencia" del Informe.
+- **Reincidencia FTTH:** por número de cuenta del título, dentro de cada grupo. Nunca cuenta nada que diga Cobranzas Masivas (facturación, reembolso). Por defecto tampoco cuenta cambio de plan; se cambia con el filtro "Problemas de reincidencia" del Informe.
 - **Grupos técnicos unificados**, en este orden: termina en Cobranzas Masivas → Cobranzas Masivas (+); dice reparación → Reparación (+); activaciones → Activaciones (+); UDN Caracas → UDN Caracas (+); COR → COR (+); Contratista San Agustín → Contratista San Agustín (+). El (+) indica que el grupo reúne varios grupos de GLPI. Los grupos que se agregan desde el filtro pasan por las mismas reglas.
 - **Upgrades y SVA:** aumentos de plan leídos de la descripción; las disminuciones y los cambios revertidos no cuentan.
 - **Controles de calidad:** se muestran en el Informe y en la hoja "Controles" del Excel.

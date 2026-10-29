@@ -131,7 +131,7 @@
       var X = function (c) { return x0 + c * (cw + gx); }, Y = function (r) { return y0 + r * (ch + gy); };
       card(s, X(0), Y(0), cw, ch, { label: 'Índice de resolución PIA', chip: 'pia', value: pct(F.ir.pct), unit: miles(F.ir.num) + ' Casos', sub: miles(F.ir.fcr) + ' resueltos en 1er contacto + ' + miles(F.ir.escResueltos) + ' escalados con solución en GLPI, de ' + miles(F.ir.den) + ' casos del PIA' });
       card(s, X(1), Y(0), cw, ch, { label: 'Resolución en 1er contacto (FCR)', chip: 'pia', value: pct(F.fcr.pct), unit: miles(F.fcr.n) + ' Casos', sub: 'de los ' + miles(F.fcr.den) + ' casos únicos tipificados por el PIA' });
-      card(s, X(2), Y(0), cw, ch, { label: 'Productividad del punto PIA', chip: 'pia', value: miles(F.productividad.casos) + ' Casos', size: 22, unit: miles(F.productividad.abonados) + ' abonados', sub: 'casos únicos tipificados por ' + R.cfg.sucursal + (F.productividad.duplicados ? ' (' + miles(F.productividad.duplicados) + ' duplicados excluidos)' : '') + '; abonados = cédulas distintas' });
+      card(s, X(2), Y(0), cw, ch, { label: 'Productividad del punto PIA', chip: 'pia', value: miles(F.productividad.casos) + ' Casos', size: 22, unit: miles(F.productividad.abonados) + ' abonados', sub: 'casos únicos tipificados por ' + R.cfg.sucursal + '; abonados = cédulas distintas' });
       var sem = function (g) { var x = G[g].semana; return { value: pct(x.pct), sub: miles(x.cerradosMisma) + ' de ' + miles(x.abiertos) + ' abiertos (' + R.ventana.corta + ')' }; };
       cardPar(s, X(0), Y(1), cw, ch, 'Cerrados en la misma semana que se abrieron', '', a, b, sem(a), sem(b), sinChipB);
       card(s, X(1), Y(1), cw, ch, { label: 'Satisfacción / NPS', tag: 'Trimestral', value: F.nps || '—', sub: F.nps ? '' : 'sin medición en este corte' });
@@ -248,7 +248,7 @@
       var s = base('ATC · Reincidencias de clientes FTTH');
       card(s, 0.45, 1.45, 2.4, 1.15, { label: 'Abonados', chip: 'sgu', value: miles(RI.abonados), size: 24 });
       card(s, 3.0, 1.45, 2.4, 1.15, { label: 'Tickets', chip: 'sgu', value: miles(RI.tickets), size: 24, sub: pct(RI.pct) + ' de ' + miles(RI.ftth) + ' FTTH' });
-      txt(s, 'Reincidente: misma cuenta (número del título) con 2 o más tickets FTTH en SGU durante el período.' + (R.reincExcluidas.length ? ' No cuentan: ' + R.reincExcluidas.map(function (c) { return E.catCorta(c).toLowerCase(); }).join(', ') + '.' : ''), { x: 0.45, y: 2.68, w: 4.95, h: 0.56, fontSize: 8.5, color: C.muted });
+      txt(s, 'Reincidente: misma cuenta (número del título) con 2 o más tickets FTTH en SGU durante el período. No cuenta nada de Cobranzas Masivas' + (R.reincExcluidas.filter(function (c) { return !/cobranzas masivas/i.test(c); }).length ? ' ni ' + R.reincExcluidas.filter(function (c) { return !/cobranzas masivas/i.test(c); }).map(function (c) { return E.catCorta(c).toLowerCase(); }).join(', ') : '') + '.', { x: 0.45, y: 2.68, w: 4.95, h: 0.56, fontSize: 8.5, color: C.muted });
       var cats = Object.keys(RI.porCategoria).sort(function (x, y) { return RI.porCategoria[y] - RI.porCategoria[x]; });
       txt(s, 'Categorías de los tickets reincidentes', { x: 0.45, y: 3.3, w: 5, h: 0.28, fontSize: 10, bold: true });
       if (cats.length) s.addChart(pptx.ChartType.bar, [{ name: 'Tickets', labels: cats, values: cats.map(function (c) { return RI.porCategoria[c]; }) }], {
@@ -261,13 +261,13 @@
       var hall = [
         principal ? principal + ' concentra ' + miles(RI.porCategoria[principal]) + ' de los ' + miles(RI.tickets) + ' tickets reincidentes (' + pct(RI.porCategoria[principal] / RI.tickets) + ').' : 'Sin reincidencias en el período.',
         top ? top.nombre + ' (cuenta ' + top.cuenta + ') es el abonado con más tickets: ' + top.tickets.length + ' (' + top.categorias.join(', ') + ').' : '',
-        miles(dePIA) + ' de los ' + miles(RI.tickets) + ' tickets reincidentes los creó el PIA (' + pct(RI.tickets ? dePIA / RI.tickets : null) + '); el resto, otras unidades.',
-        'Alertas de calidad: ' + miles(R.controles.posiblesDuplicados.length) + ' posible' + (R.controles.posiblesDuplicados.length === 1 ? '' : 's') + ' duplicado' + (R.controles.posiblesDuplicados.length === 1 ? '' : 's') + ' y ' + miles(R.controles.nombres.length) + ' nombre' + (R.controles.nombres.length === 1 ? '' : 's') + ' inconsistente' + (R.controles.nombres.length === 1 ? '' : 's') + ' en GLPI. Detalle en los controles del Informe.'
+        miles(dePIA) + ' de los ' + miles(RI.tickets) + ' tickets reincidentes los creó el PIA (' + pct(RI.tickets ? dePIA / RI.tickets : null) + '); el resto, otras unidades.'
       ];
       txt(s, 'Hallazgos', { x: 5.9, y: 1.45, w: 6, h: 0.3, fontSize: 11, bold: true });
+      hall = hall.filter(Boolean);
       hall.forEach(function (hx, i) {
-        var y = 1.85 + i * 1.2;
-        s.addShape(pptx.ShapeType.roundRect, { x: 5.9, y: y, w: 0.42, h: 0.42, rectRadius: 0.21, fill: { color: i === 3 ? C.hot : C.purple }, line: { color: C.white, width: 0 } });
+        var y = 1.85 + i * 1.45;
+        s.addShape(pptx.ShapeType.roundRect, { x: 5.9, y: y, w: 0.42, h: 0.42, rectRadius: 0.21, fill: { color: C.purple }, line: { color: C.white, width: 0 } });
         txt(s, String(i + 1), { x: 5.9, y: y, w: 0.42, h: 0.42, fontSize: 12, bold: true, color: C.white, align: 'center', valign: 'middle' });
         box(s, 6.45, y - 0.08, 6.45, 1.0);
         txt(s, hx, { x: 6.62, y: y - 0.08, w: 6.15, h: 1.0, fontSize: 10, valign: 'middle' });

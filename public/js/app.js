@@ -352,7 +352,7 @@
   var FILTROS = [
     { id: 'categorias', kind: 'categorias', title: 'Categorías', noun: 'categorías', note: 'Aplica a tiempos por categoría y productividad. Las no seleccionadas se suman en "Otro".' },
     { id: 'grupos', kind: 'grupos', title: 'Grupos técnicos', noun: 'grupos', note: 'Aplica a tiempos por grupo técnico. Los no seleccionados se suman en "Otro". Los grupos se unifican: termina en Cobranzas Masivas → Cobranzas Masivas (+); dice reparación → Reparación (+); activaciones → Activaciones (+); UDN Caracas → UDN Caracas (+); COR → COR (+); Contratista San Agustín → Contratista San Agustín (+). El (+) indica que el grupo reúne varios grupos de GLPI que participaron en la solución.' },
-    { id: 'reincExcluir', kind: 'ftth', invert: true, title: 'Problemas de reincidencia', noun: 'categorías FTTH', note: 'Marcadas: cuentan para reincidencia. Desmarcadas: no cuentan (por defecto facturación, reembolso y cambio de plan).' }
+    { id: 'reincExcluir', kind: 'ftth', invert: true, title: 'Problemas de reincidencia', noun: 'categorías FTTH', note: 'Marcadas: cuentan para reincidencia. Desmarcadas: no cuentan (por defecto, cambio de plan). Lo que dice Cobranzas Masivas (facturación, reembolso) nunca cuenta.' }
   ];
   function keyerDe(d) { return d.kind === 'grupos' ? E.grpKey : E.norm; }
   /** Claves marcadas en el filtro (para el de reincidencia: las categorías que SÍ cuentan). */
@@ -427,9 +427,13 @@
         tile('c12', 'Tickets creados por categoría', 'PIA y SGU otras unidades', C.hbars({ title: 'Creados por categoría', labels: ps.map(function (r) { return E.catCorta(r.label); }), labelW: 220, series: [{ name: 'PIA', color: COLORS.hot, values: ps.map(function (r) { return r.pia.creados; }) }, { name: 'SGU otras unidades', color: COLORS.brand, values: ps.map(function (r) { return r.otras.creados; }) }], fmt: num }));
     } else if (i === 4) {
       var RI = R.reincidencia, rc = Object.keys(RI.porCategoria).sort(function (x, y) { return RI.porCategoria[y] - RI.porCategoria[x]; });
-      body = GS.map(function (g) { var x = G[g].reinc; return '<div class="viz card c3 xable"' + xa({ k: 'reinc', g: g }) + '><div class="t">Reincidencia FTTH ' + chipH(g) + '</div><div class="v">' + num(x.abonados) + '<small>abonados</small></div><div class="n">' + num(x.tickets) + ' tickets · ' + pct(x.pct) + ' de ' + num(x.ftth) + ' FTTH</div></div>'; }).join('') +
+      var KQ = R.controles, alertas = [];
+      if (KQ.posiblesDuplicados.length) alertas.push(num(KQ.posiblesDuplicados.length) + ' posible' + (KQ.posiblesDuplicados.length === 1 ? '' : 's') + ' ticket' + (KQ.posiblesDuplicados.length === 1 ? '' : 's') + ' duplicado' + (KQ.posiblesDuplicados.length === 1 ? '' : 's') + ' en GLPI (misma cuenta y categoría, abiertos con menos de 60 minutos de diferencia)');
+      if (KQ.nombres.length) alertas.push(num(KQ.nombres.length) + ' nombre' + (KQ.nombres.length === 1 ? '' : 's') + ' inconsistente' + (KQ.nombres.length === 1 ? '' : 's') + ' entre el título y "Nombre Cliente"');
+      if (KQ.sinCuenta.length) alertas.push(num(KQ.sinCuenta.length) + ' ticket' + (KQ.sinCuenta.length === 1 ? '' : 's') + ' SGU sin número de cuenta en el título (no entran en reincidencias)');
+      body = (alertas.length ? '<div class="c12 msg alerta" role="note"><b>Alertas de calidad:</b> ' + esc(alertas.join('; ')) + '. Revise el detalle en la página Controles. Esta alerta solo se muestra en el Informe.</div>' : '') + GS.map(function (g) { var x = G[g].reinc; return '<div class="viz card c3 xable"' + xa({ k: 'reinc', g: g }) + '><div class="t">Reincidencia FTTH ' + chipH(g) + '</div><div class="v">' + num(x.abonados) + '<small>abonados</small></div><div class="n">' + num(x.tickets) + ' tickets · ' + pct(x.pct) + ' de ' + num(x.ftth) + ' FTTH</div></div>'; }).join('') +
         tile('c5', 'Categorías de los tickets reincidentes', 'SGU total', rc.length ? C.hbars({ title: 'Reincidencia por categoría', labels: rc, labelW: 170, series: [{ name: 'Tickets', color: COLORS.brand, values: rc.map(function (k) { return RI.porCategoria[k]; }) }], fmt: num }) : '<p class="hint">Sin reincidencias.</p>') +
-        tile('c7', 'Cuentas reincidentes FTTH', 'SGU total · por número de cuenta del título' + (R.reincExcluidas.length ? ' · no cuentan: ' + R.reincExcluidas.map(function (c) { return E.catCorta(c).toLowerCase(); }).join(', ') : ''), table('<th>Cliente</th><th>Cuenta</th><th>Categorías</th><th>Tickets</th>', '', RI.detalle.length ? RI.detalle.map(function (d) { return { cells: [d.nombre, d.cuenta, d.categorias.join('\n'), d.tickets.map(function (t) { return t.id + (t.pia ? ' (PIA)' : ''); }).join('\n')] }; }) : [{ cells: ['Sin reincidencias', '', '', ''] }]));
+        tile('c7', 'Cuentas reincidentes FTTH', 'SGU total · por número de cuenta del título · no cuenta nada de Cobranzas Masivas' + (R.reincExcluidas.filter(function (c) { return !/cobranzas masivas/i.test(c); }).length ? ' ni ' + R.reincExcluidas.filter(function (c) { return !/cobranzas masivas/i.test(c); }).map(function (c) { return E.catCorta(c).toLowerCase(); }).join(', ') : ''), table('<th>Cliente</th><th>Cuenta</th><th>Categorías</th><th>Tickets</th>', '', RI.detalle.length ? RI.detalle.map(function (d) { return { cells: [d.nombre, d.cuenta, d.categorias.join('\n'), d.tickets.map(function (t) { return t.id + (t.pia ? ' (PIA)' : ''); }).join('\n')] }; }) : [{ cells: ['Sin reincidencias', '', '', ''] }]));
     } else if (i === 5 || i === 6) {
       var semana = i === 5;
       var cols = semana ? ['Abiertos', 'Pendientes', 'Resueltos', 'Pend. acum.', 'Resuelto acum.', '% jornada'] : ['Abiertos', 'Pendientes', 'Resueltos mismo día', '% jornada'];
@@ -490,7 +494,7 @@
   function filterOptions(d, R) {
     var k = keyerDe(d), opts = R.opciones[d.kind].slice(), known = {};
     opts.forEach(function (o) { known[o.key] = true; });
-    filtros()[d.id].forEach(function (lab) { var kk = k(lab); if (!known[kk]) { opts.push({ label: d.kind === 'grupos' ? E.grpLabel(lab) : lab, key: kk, sgu: 0, total: 0 }); known[kk] = true; } });
+    filtros()[d.id].forEach(function (lab) { var kk = k(lab); if (d.kind === 'ftth' && /cobranzas masivas/i.test(E.norm(lab).normalize('NFD').replace(/[\u0300-\u036f]/g, ''))) return; if (!known[kk]) { opts.push({ label: d.kind === 'grupos' ? E.grpLabel(lab) : lab, key: kk, sgu: 0, total: 0 }); known[kk] = true; } });
     return opts;
   }
   function filterList(d, R) {

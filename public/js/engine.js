@@ -307,6 +307,8 @@
     var grpKeys = [], gruposU = [];
     cfg.grupos.forEach(function (g) { var k = grpKey(g); if (k && grpKeys.indexOf(k) < 0) { grpKeys.push(k); gruposU.push(grpLabel(g)); } });
     var reincFuera = (cfg.reincExcluir || []).map(function (c) { return norm(homologar(c)); });
+    /* Reincidencia: solo categorías FTTH y nunca nada que diga "Cobranzas Masivas" */
+    var esReincidible = function (k) { return k.indexOf('ftth') >= 0 && stripAccents(k).indexOf('cobranzas masivas') < 0; };
     var controles = {};
 
     /* --- GLPI del período --- */
@@ -413,7 +415,7 @@
 
     /* --- reincidencia FTTH --- */
     function reincidencia(L) {
-      var ftth = L.filter(function (t) { return t.catK.indexOf('ftth') >= 0 && reincFuera.indexOf(t.catK) < 0; });
+      var ftth = L.filter(function (t) { return esReincidible(t.catK) && reincFuera.indexOf(t.catK) < 0; });
       var porCuenta = {}, orden = [];
       ftth.forEach(function (t) {
         if (!t.cuenta) return;
@@ -580,7 +582,7 @@
     T.forEach(function (t) {
       var c = oc[t.catK] || (oc[t.catK] = { label: t.cat || '(Sin categoría)', key: t.catK, sgu: 0, total: 0 }); c.total++; if (t.sgu) c.sgu++;
       var g = og[t.grpK] || (og[t.grpK] = { label: t.grpL || '(Sin grupo)', key: t.grpK, sgu: 0, total: 0 }); g.total++; if (t.sgu) g.sgu++;
-      if (t.catK.indexOf('ftth') >= 0) { var f = of[t.catK] || (of[t.catK] = { label: t.cat, key: t.catK, sgu: 0, total: 0 }); f.total++; if (t.sgu) f.sgu++; }
+      if (esReincidible(t.catK)) { var f = of[t.catK] || (of[t.catK] = { label: t.cat, key: t.catK, sgu: 0, total: 0 }); f.total++; if (t.sgu) f.sgu++; }
     });
     function lista(o) { return Object.keys(o).map(function (k) { return o[k]; }).filter(function (x) { return x.key; }).sort(function (a, b) { return b.sgu - a.sgu || b.total - a.total || a.label.localeCompare(b.label); }); }
 
@@ -674,7 +676,7 @@
           var RI = porGrupo[g].reinc;
           e.titulo = 'Reincidencia de fallas FTTH · ' + et; e.valor = RI.abonados + ' abonados · ' + RI.tickets + ' tickets';
           e.definicion = 'Cuentas (número del título) con 2 o más tickets FTTH dentro del mismo grupo en el período.';
-          e.filtros = [filtroPeriodoGLPI, et + ': ' + DEF_G[g] + '.', 'Categoría contiene "FTTH" (incluye Cobranzas Masivas > FTTH).', reincFuera.length ? 'No cuentan: ' + (cfg.reincExcluir || []).join('; ') + '.' : 'Cuentan todas las categorías FTTH.', 'Cuenta: del título "... - NOMBRE - CÉDULA - CUENTA". Tickets sin cuenta no entran (' + RI.sinCuenta.length + ').'];
+          e.filtros = [filtroPeriodoGLPI, et + ': ' + DEF_G[g] + '.', 'Categoría contiene "FTTH" y no dice "Cobranzas Masivas" (esas nunca cuentan).', reincFuera.length ? 'No cuentan: ' + (cfg.reincExcluir || []).join('; ') + '.' : 'Cuentan todas las categorías FTTH.', 'Cuenta: del título "... - NOMBRE - CÉDULA - CUENTA". Tickets sin cuenta no entran (' + RI.sinCuenta.length + ').'];
           e.pasos = ['Tickets FTTH que cuentan: ' + RI.ftth + '.', 'Cuentas con 2 o más tickets: ' + RI.abonados + ', que suman ' + RI.tickets + ' tickets.', 'Porcentaje: ' + RI.tickets + ' ÷ ' + RI.ftth + ' = ' + pct(RI.pct) + '.'];
           e.registros = [{ titulo: 'Cuentas reincidentes', cols: ['Cuenta', 'Cliente', 'Ticket', 'Categoría', 'Estado'], filas: RI.detalle.reduce(function (a, d) { return a.concat(d.tickets.map(function (t) { return [d.cuenta, d.nombre, t.id, t.cat, t.estado]; })); }, []) }]; break;
         case 'upgrades': case 'sva':
