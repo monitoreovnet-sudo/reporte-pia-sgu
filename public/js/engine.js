@@ -185,7 +185,8 @@
         solicitante: row[i.solicitante] == null ? '' : String(row[i.solicitante]),
         grupo: row[i.grupo] == null ? '' : String(row[i.grupo]),
         descripcion: i.descripcion !== undefined && row[i.descripcion] != null && necesitaDescripcion(cat) ? fixText(row[i.descripcion]) : '',
-        cliente: i.cliente !== undefined && row[i.cliente] != null ? fixText(row[i.cliente]).trim() : ''
+        cliente: i.cliente !== undefined && row[i.cliente] != null ? fixText(row[i.cliente]).trim() : '',
+        cuentaDesc: i.descripcion !== undefined ? cuentaDeDescripcion(row[i.descripcion]) : ''
       });
     }
     if (!out.length) throw new Error('El archivo de GLPI no tiene tickets.');
@@ -212,25 +213,41 @@
     return out;
   }
 
+  /* La descripción que GLPI arma desde el sistema trae "Nombre de la cuenta:61332 - NOMBRE". */
+  function cuentaDeDescripcion(d) {
+    var m = String(d == null ? '' : d).match(/Nombre de la cuenta:\s*(\d{1,7})\b/i);
+    return m ? m[1] : '';
+  }
+
   /* ---------- cuenta del abonado (3.5) ---------- */
   function cuentaDeTitulo(titulo) {
-    var t = String(titulo || '');
-    var m = t.match(/-\s*(\d{5,9})\s*[-–]\s*(\d{1,7})\b/);
+    /* quita al final espacios, puntos y guiones sueltos */
+    var t0 = String(titulo || '').replace(/\s+/g, ' ').replace(/[\s.\-–]+$/, ''), t = t0;
+    var m = matchCuenta(t);
+    if (!m) {
+      /* texto añadido después de la cuenta: "- GARANTIA", "(Vnet)" */
+      var cola = t.match(/(\s*[-–]\s*[A-Za-zÁÉÍÓÚÑáéíóúñ ]{3,}|\s*\([^)]*\))$/);
+      if (cola) { t = t.slice(0, cola.index).replace(/[\s.\-–]+$/, ''); m = matchCuenta(t); }
+    }
     var cuenta = null, cedula = null, nombre = '';
-    if (m) {
+    if (m && m[1] !== m[2]) {
       cuenta = m[2]; cedula = m[1];
-      var antes = t.slice(0, m.index).replace(/\s+$/, '');
-      var k = antes.lastIndexOf(' - ');
-      nombre = (k >= 0 ? antes.slice(k + 3) : antes).trim();
+      nombre = nombreAntes(t.slice(0, m.index));
     } else {
-      var b = t.match(/[-–]\s*(\d{3,7})\s*$/);
-      if (b) {
-        cuenta = b[1];
-        var partes = t.slice(0, b.index).split(/\s+[-–]\s+/);
-        nombre = (partes[partes.length - 1] || '').replace(/^[-–\s]+|[-–\s]+$/g, '').trim();
-      }
+      var b = t0.match(/[-–]\s*(\d{3,6})$/);
+      if (b) { cuenta = b[1]; nombre = nombreAntes(t0.slice(0, b.index)); }
     }
     return { cuenta: cuenta, cedula: cedula, nombre: nombre.toUpperCase() };
+  }
+  /* Al final del título: CÉDULA (con "V", "CI:" o ceros delante y un sufijo "-001" opcionales) y luego la CUENTA.
+     La cuenta es siempre el último número: "18524490-001 - 396445" → cuenta 396445, no 001. */
+  function matchCuenta(t) {
+    return t.match(/(?:^|[\s\-–:(])(?:[Cc]\.?[Ii]\.?:?\s*)?(?:[VvEeJjGg][\s\-]{0,2})?0*(\d{5,9})(?:\s*[-–]\s*\d{1,3})?\s*[-–\s]\s*(\d{1,7})$/);
+  }
+  function nombreAntes(antes) {
+    var partes = String(antes).replace(/[\s\-–:]+$/, '').split(/\s*[-–]\s+|\s+[-–]\s*/);
+    var n = partes[partes.length - 1] || '';
+    return n.replace(/[\s(]*([Cc]\.?[Ii]\.?:?|[VvEeJjGg])?[\s\-(]*$/, '').replace(/^[-–\s]+|[-–\s:]+$/g, '').trim();
   }
 
   /* ---------- dirección del cambio de plan (4.3) ---------- */
@@ -322,13 +339,14 @@
       var esPia = eq(raw.solicitante, cfg.piaSolicitante);
       var res = /^(resuelto|cerrado)$/.test(norm(raw.estado));
       var dur = res && raw.solucion !== null ? Math.max(0, Math.round((raw.solucion - raw.apertura) * 86400)) : null;
-      var acc = cuentaDeTitulo(raw.titulo);
+      var acc = cuentaDeTitulo(raw.titulo), cDesc = raw.cuentaDesc || '', origen = 'título';
+      if (!acc.cuenta && cDesc) { acc.cuenta = cDesc; origen = 'descripción'; if (!acc.nombre) acc.nombre = String(raw.cliente || '').toUpperCase(); }
       T.push({
         raw: raw, idx: idx, id: raw.id, idNum: soloDigitos(raw.id), sgu: sgu, piaSol: esPia, pia: sgu && esPia, res: res, dur: dur,
         cat: cat, catK: norm(cat), grpL: grpLabel(raw.grupo), grpK: grpKey(raw.grupo),
         dAp: Math.floor(raw.apertura + 1e-9), dSol: res && raw.solucion !== null ? Math.floor(raw.solucion + 1e-9) : null,
         dCie: raw.cierre !== null ? Math.floor(raw.cierre + 1e-9) : null, cierre: raw.cierre,
-        cuenta: acc.cuenta, nombreTitulo: acc.nombre
+        cuenta: acc.cuenta, nombreTitulo: acc.nombre, cuentaOrigen: origen, cuentaDesc: cDesc
       });
     });
     var EN = {
@@ -555,6 +573,10 @@
     Object.keys(nombresPorCuenta).forEach(function (c) { var ns = Object.keys(nombresPorCuenta[c]).filter(Boolean); if (ns.length > 1) inconsistentes.push({ cuenta: c, id: '', titulo: ns.map(function (k) { return nombresPorCuenta[c][k]; }).join(' / '), campo: '', tipo: 'Cuenta con nombres distintos' }); });
     controles.nombres = inconsistentes;
     controles.sinCuenta = SGU.filter(function (t) { return !t.cuenta; }).map(function (t) { return { id: t.id, titulo: t.raw.titulo }; });
+    /* FTTH del país cuyo número de cuenta en el título no coincide con el de la descripción (posible error de tipeo) */
+    controles.cuentaDistinta = T.filter(function (t) { return t.cuentaOrigen === 'título' && t.cuentaDesc && t.cuenta !== t.cuentaDesc && esReincidible(t.catK) && reincFuera.indexOf(t.catK) < 0; })
+      .map(function (t) { return { id: t.id, titulo: t.raw.titulo, cuentaTitulo: t.cuenta, cuentaDesc: t.cuentaDesc, grupo: t.pia ? 'PIA' : (t.sgu ? 'SGU otras unidades' : 'País') }; });
+    controles.cuentaDeDescripcion = T.filter(function (t) { return t.cuentaOrigen === 'descripción' && esReincidible(t.catK) && reincFuera.indexOf(t.catK) < 0; }).length;
     controles.piaFueraSGU = T.filter(function (t) { return t.piaSol && !t.sgu; }).map(function (t) { return { id: t.id, titulo: t.raw.titulo }; });
     controles.planIndefinido = cambios.filter(function (c) { return c.dir === 'indefinido'; }).map(function (c) { return { id: c.t.id, grupo: c.t.pia ? 'PIA' : (c.t.sgu ? 'SGU otras unidades' : 'País'), extracto: String(c.t.raw.descripcion || c.t.raw.titulo).replace(/\s+/g, ' ').slice(0, 180) }; });
     controles.reversiones = cambios.filter(function (c) { return c.reversion; }).map(function (c) { return { id: c.t.id, extracto: String(c.t.raw.descripcion).replace(/\s+/g, ' ').slice(0, 180) }; });
@@ -676,7 +698,7 @@
           var RI = porGrupo[g].reinc;
           e.titulo = 'Reincidencia de fallas FTTH · ' + et; e.valor = RI.abonados + ' abonados · ' + RI.tickets + ' tickets';
           e.definicion = 'Cuentas (número del título) con 2 o más tickets FTTH dentro del mismo grupo en el período.';
-          e.filtros = [filtroPeriodoGLPI, et + ': ' + DEF_G[g] + '.', 'Categoría contiene "FTTH" y no dice "Cobranzas Masivas" (esas nunca cuentan).', reincFuera.length ? 'No cuentan: ' + (cfg.reincExcluir || []).join('; ') + '.' : 'Cuentan todas las categorías FTTH.', 'Cuenta: del título "... - NOMBRE - CÉDULA - CUENTA". Tickets sin cuenta no entran (' + RI.sinCuenta.length + ').'];
+          e.filtros = [filtroPeriodoGLPI, et + ': ' + DEF_G[g] + '.', 'Categoría contiene "FTTH" y no dice "Cobranzas Masivas" (esas nunca cuentan).', reincFuera.length ? 'No cuentan: ' + (cfg.reincExcluir || []).join('; ') + '.' : 'Cuentan todas las categorías FTTH.', 'Cuenta: el último número del título "... - NOMBRE - CÉDULA - CUENTA" (si la cédula trae sufijo, p. ej. 18524490-001, el sufijo no es la cuenta). Si el título no la trae, se toma de la descripción ("Nombre de la cuenta: N"). Tickets sin cuenta no entran (' + RI.sinCuenta.length + ').'];
           e.pasos = ['Tickets FTTH que cuentan: ' + RI.ftth + '.', 'Cuentas con 2 o más tickets: ' + RI.abonados + ', que suman ' + RI.tickets + ' tickets.', 'Porcentaje: ' + RI.tickets + ' ÷ ' + RI.ftth + ' = ' + pct(RI.pct) + '.'];
           e.registros = [{ titulo: 'Cuentas reincidentes', cols: ['Cuenta', 'Cliente', 'Ticket', 'Categoría', 'Estado'], filas: RI.detalle.reduce(function (a, d) { return a.concat(d.tickets.map(function (t) { return [d.cuenta, d.nombre, t.id, t.cat, t.estado]; })); }, []) }]; break;
         case 'upgrades': case 'sva':

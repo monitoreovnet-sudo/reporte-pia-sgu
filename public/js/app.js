@@ -101,14 +101,14 @@
   function empaquetar(glpi, tip) {
     return JSON.stringify({
       v: 3, dup: glpi.duplicados || 0,
-      g: glpi.map(function (r) { return [r.id, r.titulo, r.estado, r.categoria, r.apertura, r.solucion, r.cierre, r.solicitante, r.grupo, r.descripcion, r.cliente]; }),
+      g: glpi.map(function (r) { return [r.id, r.titulo, r.estado, r.categoria, r.apertura, r.solucion, r.cierre, r.solicitante, r.grupo, r.descripcion, r.cliente, r.cuentaDesc || '']; }),
       t: tip.map(function (r) { return [r.fecha, r.sucursal, r.categoria, r.subcategoria, r.estatus, r.ticket, r.cuenta, r.motivo, r.cedula, r.id]; })
     });
   }
   function desempaquetar(txt) {
     var o = JSON.parse(txt);
     if (o.v !== 3) { var e = new Error('Esta carga es del formato anterior. Vuelva a subir los archivos en el Repositorio.'); e.v1 = true; throw e; }
-    var glpi = o.g.map(function (a) { return { id: a[0], titulo: a[1], estado: a[2], categoria: a[3], apertura: a[4], solucion: a[5], cierre: a[6], solicitante: a[7], grupo: a[8], descripcion: a[9], cliente: a[10] }; });
+    var glpi = o.g.map(function (a) { return { id: a[0], titulo: a[1], estado: a[2], categoria: a[3], apertura: a[4], solucion: a[5], cierre: a[6], solicitante: a[7], grupo: a[8], descripcion: a[9], cliente: a[10], cuentaDesc: a[11] || '' }; });
     glpi.duplicados = o.dup || 0;
     var tip = o.t.map(function (a) { return { fecha: a[0], sucursal: a[1], categoria: a[2], subcategoria: a[3], estatus: a[4], ticket: a[5], cuenta: a[6], motivo: a[7], cedula: a[8], id: a[9] }; });
     return { glpi: glpi, tip: tip };
@@ -468,6 +468,7 @@
         ctl(3, 'Posibles duplicados (SGU)', num(K.posiblesDuplicados.length) + ' pares: misma cuenta y categoría, abiertos a menos de 60 minutos', K.posiblesDuplicados.length ? table('<th>Cuenta</th><th>Categoría</th><th>Tickets</th><th>Minutos</th>', '', K.posiblesDuplicados.map(function (x) { return { cells: [x.cuenta, x.cat, x.ids.join(' y '), x.minutos] }; })) : '') +
         ctl(4, 'Nombres inconsistentes (SGU)', num(K.nombres.length) + ' casos', K.nombres.length ? table('<th>Cuenta</th><th>Ticket</th><th>Tipo</th><th>Nombre en el título</th><th>"Nombre Cliente"</th>', '', K.nombres.map(function (x) { return { cells: [x.cuenta, x.id, x.tipo, x.titulo, x.campo] }; })) : '') +
         ctl(5, 'Tickets SGU sin cuenta en el título', num(K.sinCuenta.length) + ' tickets (no entran en reincidencias)', K.sinCuenta.length ? table('<th>Ticket</th><th>Título</th>', '', K.sinCuenta.map(function (x) { return { cells: [x.id, x.titulo] }; })) : '') +
+        ctl('5b', 'Cuenta del título distinta a la de la descripción (FTTH)', num((K.cuentaDistinta || []).length) + ' tickets: la reincidencia usa la cuenta del título; revise si el título tiene un error de tipeo' + (K.cuentaDeDescripcion ? ' · ' + num(K.cuentaDeDescripcion) + ' tickets sin cuenta en el título la tomaron de la descripción' : ''), (K.cuentaDistinta || []).length ? table('<th>Ticket</th><th>Grupo</th><th>Cuenta en el título</th><th>Cuenta en la descripción</th><th>Título</th>', '', K.cuentaDistinta.map(function (x) { return { cells: [x.id, x.grupo, x.cuentaTitulo, x.cuentaDesc, x.titulo] }; })) : '') +
         ctl(6, 'Tickets del PIA fuera de SGU', num(K.piaFueraSGU.length) + ' tickets: el solicitante es el PIA pero el título no dice "' + R.cfg.sguMarker + '"', K.piaFueraSGU.length ? table('<th>Ticket</th><th>Título</th>', '', K.piaFueraSGU.map(function (x) { return { cells: [x.id, x.titulo] }; })) : '') +
         ctl(7, 'Cambios de plan sin dirección clara', num(K.planIndefinido.length) + ' tickets para revisar a mano (no cuentan como upgrade)', K.planIndefinido.length ? table('<th>Ticket</th><th>Grupo</th><th>Extracto</th>', '', K.planIndefinido.map(function (x) { return { cells: [x.id, x.grupo, x.extracto] }; })) : '') +
         ctl(8, 'Totales entre tablas', K.totales.every(function (x) { return x.ok; }) ? 'Coinciden en los cuatro grupos' : 'Hay diferencias: revisar', table('<th>Grupo</th><th>Creados</th><th>Solucionados</th><th>Suma 5.1</th><th>Suma 5.2</th><th>Creados 5.3</th><th>Solucionados 5.3</th><th>Estado</th>', '', K.totales.map(function (x) { return { cells: [x.grupo, num(x.creados), num(x.solucionados), num(x.t51), num(x.t52), num(x.t53c), num(x.t53s), x.ok ? 'Coincide' : 'Revisar'] }; }))) +
@@ -698,6 +699,7 @@
     ca.push(['3. Posibles duplicados (SGU)', K.posiblesDuplicados.length + ' pares', '', '']); K.posiblesDuplicados.forEach(function (x) { ca.push(['', '', x.ids.join(' y '), 'Cuenta ' + x.cuenta + ' · ' + x.cat + ' · ' + x.minutos + ' min']); });
     ca.push(['4. Nombres inconsistentes (SGU)', K.nombres.length + ' casos', '', '']); K.nombres.forEach(function (x) { ca.push(['', x.tipo, x.id || ('Cuenta ' + x.cuenta), x.titulo + (x.campo ? ' / ' + x.campo : '')]); });
     ca.push(['5. Tickets SGU sin cuenta', K.sinCuenta.length + ' tickets', '', '']); K.sinCuenta.forEach(function (x) { ca.push(['', '', x.id, x.titulo]); });
+    ca.push(['5b. Cuenta del título distinta a la descripción (FTTH)', (K.cuentaDistinta || []).length + ' tickets', '', '']); (K.cuentaDistinta || []).forEach(function (x) { ca.push(['', x.grupo, x.id, 'Título: ' + x.cuentaTitulo + ' · Descripción: ' + x.cuentaDesc + ' · ' + x.titulo]); });
     ca.push(['6. Tickets del PIA fuera de SGU', K.piaFueraSGU.length + ' tickets', '', '']); K.piaFueraSGU.forEach(function (x) { ca.push(['', '', x.id, x.titulo]); });
     ca.push(['7. Cambios de plan sin dirección clara', K.planIndefinido.length + ' tickets', '', '']); K.planIndefinido.forEach(function (x) { ca.push(['', x.grupo, x.id, x.extracto]); });
     ca.push(['8. Totales entre tablas', K.totales.every(function (x) { return x.ok; }) ? 'Coinciden' : 'Revisar', '', '']); K.totales.forEach(function (x) { ca.push(['', x.ok ? 'Coincide' : 'Revisar', x.grupo, 'Creados ' + x.creados + ' / solucionados ' + x.solucionados + ' · 5.1 ' + x.t51 + ' · 5.2 ' + x.t52 + ' · 5.3 ' + x.t53c + '/' + x.t53s]); });
