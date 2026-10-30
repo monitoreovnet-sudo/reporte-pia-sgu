@@ -199,7 +199,7 @@
       var cw = 4.0, x0 = 0.45, gx = 0.17;
       card(s, x0, 1.45, cw, 1.4, { label: 'Creados por el PIA', chip: 'pia', value: pct(G.sgu.creados ? G.pia.creados / G.sgu.creados : null), unit: E.tickets(G.pia.creados), sub: 'de los ' + miles(G.sgu.creados) + ' tickets SGU en GLPI' });
       card(s, x0 + cw + gx, 1.45, cw, 1.4, { label: 'Creados en otros canales', chip: 'otras', value: pct(G.sgu.creados ? G.otras.creados / G.sgu.creados : null), unit: E.tickets(G.otras.creados), sub: 'de los ' + miles(G.sgu.creados) + ' tickets SGU en GLPI' });
-      card(s, x0 + 2 * (cw + gx), 1.45, cw, 1.4, { label: 'Reincidencia de clientes FTTH', chip: 'sgu', value: miles(G.sgu.reinc.abonados), unit: 'Abonados · ' + miles(G.sgu.reinc.tickets) + ' tickets', sub: 'cuentas con 2 o más tickets FTTH en SGU' });
+      card(s, x0 + 2 * (cw + gx), 1.45, cw, 1.4, { label: 'Reincidencia de clientes FTTH', chip: 'sgu', value: miles(G.sgu.reinc.abonados), unit: 'Abonados · ' + miles(G.sgu.reinc.tickets) + ' tickets', sub: 'clientes con 2 o más tickets FTTH en SGU' });
       barra100(s, 0.4, 3.05, 8.6, 1.75, 'Tickets SGU por canal de creación', [{ label: L.pia, n: G.pia.creados, color: C.hot }, { label: L.otras, n: G.otras.creados, color: C.purple }], 0);
       barra100(s, 0.4, 4.95, 8.6, 1.75, 'Peso de San Agustín en el total país', [{ label: L.sgu, n: G.sgu.creados, color: C.hot }, { label: 'Resto del país', n: G.pais.creados, color: C.purple }], 1);
       var pesoSGU = G.sgu.creados / (G.sgu.creados + G.pais.creados);
@@ -244,12 +244,13 @@
 
     /* ---------- 9. Reincidencias ---------- */
     var RI = R.reincidencia;
-    function laminaReinc() {
-      var s = base('ATC · Reincidencias de clientes FTTH');
+    function laminaReinc(gen) {
+      var RI = gen ? R.reincidenciaGeneral : R.reincidencia;
+      var s = base(gen ? 'ATC · Reincidencias de clientes · todas las categorías' : 'ATC · Reincidencias de clientes FTTH');
       card(s, 0.45, 1.45, 2.4, 1.15, { label: 'Abonados', chip: 'sgu', value: miles(RI.abonados), size: 24 });
-      card(s, 3.0, 1.45, 2.4, 1.15, { label: 'Tickets', chip: 'sgu', value: miles(RI.tickets), size: 24, sub: pct(RI.pct) + ' de ' + miles(RI.ftth) + ' FTTH' });
-      txt(s, 'Reincidente: misma cuenta (número del título) con 2 o más tickets FTTH en SGU durante el período. No cuenta nada de Cobranzas Masivas' + (R.reincExcluidas.filter(function (c) { return !/cobranzas masivas/i.test(c); }).length ? ' ni ' + R.reincExcluidas.filter(function (c) { return !/cobranzas masivas/i.test(c); }).map(function (c) { return E.catCorta(c).toLowerCase(); }).join(', ') : '') + '.', { x: 0.45, y: 2.68, w: 4.95, h: 0.56, fontSize: 8.5, color: C.muted });
-      var cats = Object.keys(RI.porCategoria).sort(function (x, y) { return RI.porCategoria[y] - RI.porCategoria[x]; });
+      card(s, 3.0, 1.45, 2.4, 1.15, { label: 'Tickets', chip: 'sgu', value: miles(RI.tickets), size: 24, sub: pct(RI.pct) + ' de ' + miles(RI.ftth) + (gen ? ' tickets' : ' FTTH') });
+      txt(s, gen ? 'Reincidente: mismo cliente ("Nombre Cliente" de GLPI) con 2 o más tickets de cualquier categoría en SGU durante el período, sin excepción.' : 'Reincidente: mismo cliente ("Nombre Cliente" de GLPI) con 2 o más tickets FTTH en SGU durante el período. No cuenta nada de Cobranzas Masivas' + (R.reincExcluidas.filter(function (c) { return !/cobranzas masivas/i.test(c); }).length ? ' ni ' + R.reincExcluidas.filter(function (c) { return !/cobranzas masivas/i.test(c); }).map(function (c) { return E.catCorta(c).toLowerCase(); }).join(', ') : '') + '.', { x: 0.45, y: 2.68, w: 4.95, h: 0.56, fontSize: 8.5, color: C.muted });
+      var cats = Object.keys(RI.porCategoria).sort(function (x, y) { return RI.porCategoria[y] - RI.porCategoria[x]; }).slice(0, 10);
       txt(s, 'Categorías de los tickets reincidentes', { x: 0.45, y: 3.3, w: 5, h: 0.28, fontSize: 10, bold: true });
       if (cats.length) s.addChart(pptx.ChartType.bar, [{ name: 'Tickets', labels: cats, values: cats.map(function (c) { return RI.porCategoria[c]; }) }], {
         x: 0.35, y: 3.6, w: 5.1, h: 3.2, barDir: 'bar', chartColors: [C.purple], showValue: true, dataLabelColor: C.ink, dataLabelFontSize: 8, dataLabelFontFace: FONT, dataLabelPosition: 'outEnd',
@@ -275,7 +276,8 @@
     }
 
     /* ---------- 10. Detalle de reincidencias (2 columnas, se reparte en más láminas si hace falta) ---------- */
-    function laminaDetalleReinc() {
+    function laminaDetalleReinc(gen) {
+      var RI = gen ? R.reincidenciaGeneral : R.reincidencia;
       var LINE = 0.155, CAP = 5.0; // alto disponible por columna (pulgadas)
       function alto(d) { return Math.max(d.tickets.length, d.categorias.length) * LINE + 0.08; }
       var cols = [], cur = [], h = 0;
@@ -290,14 +292,14 @@
       }
       var paginas = Math.max(1, Math.ceil(cols.length / 2));
       for (var p = 0; p < paginas; p++) {
-        var s = base('ATC · Detalle de reincidencias FTTH' + (paginas > 1 ? '  (' + (p + 1) + '/' + paginas + ')' : ''));
+        var s = base((gen ? 'ATC · Detalle de reincidencias · todas las categorías' : 'ATC · Detalle de reincidencias FTTH') + (paginas > 1 ? '  (' + (p + 1) + '/' + paginas + ')' : ''));
         [cols[p * 2], cols[p * 2 + 1]].forEach(function (lista, ci) {
           if (!lista) return;
           var rows = lista.map(function (d) { return { bold: true, cells: [d.nombre, d.cuenta, d.categorias.join('\n'), d.tickets.map(function (t) { return t.id; }).join('\n')] }; });
           if (!rows.length) rows = [{ cells: ['Sin reincidencias en el período', '', '', ''] }];
           var hs = [0.26, 0.26].concat(lista.map(alto));
           if (!lista.length) hs.push(0.3);
-          tabla(s, { title: 'Cuentas reincidentes FTTH · SGU total', head1: [{ text: 'Cliente', o: { align: 'left' } }, { text: 'Cuenta' }, { text: 'Categorías', o: { align: 'left' } }, { text: 'Tickets' }], rows: rows,
+          tabla(s, { title: gen ? 'Clientes reincidentes · todas las categorías · SGU total' : 'Clientes reincidentes FTTH · SGU total', head1: [{ text: 'Cliente', o: { align: 'left' } }, { text: 'Cuenta' }, { text: 'Categorías', o: { align: 'left' } }, { text: 'Tickets' }], rows: rows,
             x: 0.4 + ci * 6.33, y: 1.45, w: 6.13, colW: [2.35, 0.75, 2.13, 0.9], rowHs: hs, fontSize: 7.5 });
         });
       }
@@ -407,6 +409,8 @@
       laminaOtro('productividad', 'pia');
       laminaReinc();
       laminaDetalleReinc();
+      laminaReinc(true);
+      laminaDetalleReinc(true);
       laminaGrupo('pia', 'otras', 'ATC · Grupo técnico: PIA vs. otras unidades');
       laminaOtro('tiempoGrupo', 'pia');
       laminaJornada('pia', 'otras', 'ATC · Resolución en la jornada: PIA vs. otras');
@@ -420,6 +424,8 @@
       laminaOtro('productividad', 'sgu');
       laminaReinc();
       laminaDetalleReinc();
+      laminaReinc(true);
+      laminaDetalleReinc(true);
       laminaGrupo('sgu', 'pais', 'ATC · Grupo técnico: SGU vs. resto del país');
       laminaOtro('tiempoGrupo', 'sgu');
       laminaJornada('sgu', 'pais', 'ATC · Resolución en la jornada: SGU vs. país');

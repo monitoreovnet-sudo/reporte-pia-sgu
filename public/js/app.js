@@ -91,7 +91,7 @@
   function calcular() {
     if (!S.activa) { S.R = null; return null; }
     var m = S.activa.meta;
-    var R = E.compute(S.activa.glpi, S.activa.tip, Object.assign({}, filtros(), { corte: m.corte, nps: m.nps || '', meses: m.meses && m.meses.length ? m.meses : null }));
+    var R = E.compute(S.activa.glpi, S.activa.tip, Object.assign({}, filtros(), { corte: m.corte, nps: m.nps || '', meses: m.meses && m.meses.length ? m.meses : null, revisiones: S.activa.rev || {} }));
     R.responsable = m.responsable || '';
     S.R = R;
     return R;
@@ -119,16 +119,25 @@
     try { localStorage.setItem('pia-activa', id); } catch (e) { /* sin almacenamiento */ }
     S.activaV1 = false;
     if (!(meta.resumen && meta.resumen.v === 3)) { S.activa = null; S.R = null; S.activaV1 = true; return Promise.reject(new Error('Esta carga es del formato anterior. Vuelva a subir los archivos en el Repositorio.')); }
-    if (CACHE[id]) { S.activa = { id: id, meta: meta, glpi: CACHE[id].glpi, tip: CACHE[id].tip }; calcular(); return Promise.resolve(); }
+    var revs = cargarRevisiones(id);
+    if (CACHE[id]) return revs.then(function (rv) { S.activa = { id: id, meta: meta, glpi: CACHE[id].glpi, tip: CACHE[id].tip, rev: rv }; calcular(); });
     busy('Abriendo la carga…');
-    return api('GET', 'cargas/' + id).then(function (j) {
-      return gunzip(b64ToU8(j.datos)).then(function (txt) {
-        if (meta.resumen) meta.resumen = meta.resumen;
+    return Promise.all([api('GET', 'cargas/' + id), revs]).then(function (res) {
+      return gunzip(b64ToU8(res[0].datos)).then(function (txt) {
         CACHE[id] = desempaquetar(txt);
-        S.activa = { id: id, meta: meta, glpi: CACHE[id].glpi, tip: CACHE[id].tip };
+        S.activa = { id: id, meta: meta, glpi: CACHE[id].glpi, tip: CACHE[id].tip, rev: res[1] };
         calcular();
       });
     }).finally(function () { busy(); });
+  }
+  function cargarRevisiones(id) {
+    return api('GET', 'cargas/' + id + '/revisiones').then(function (j) { return j.revisiones || {}; }, function () { return {}; });
+  }
+  /* guarda en el histórico los indicadores con las decisiones de revisión vigentes */
+  function guardarResumen() {
+    if (!S.activa || !S.R) return Promise.resolve();
+    var snap = E.snapshot(S.R); snap.v = 3; snap.vol = { glpi: S.R.volumen.glpi };
+    return api('PATCH', 'cargas/' + S.activa.id, { resumen: snap }).then(function () { S.activa.meta.resumen = snap; }).catch(function () { /* se reintenta en la próxima decisión */ });
   }
   function cargarLista() {
     return api('GET', 'cargas').then(function (j) {
@@ -228,7 +237,7 @@
   function renderRepo() {
     var filas = S.cargas.map(function (c) {
       var r = c.resumen || {}, act = S.activa && S.activa.id === c.id, v2 = esV2(c);
-      return '<tr data-id="' + c.id + '"><td><b>' + esc(c.periodo || '-') + '</b>' + (act ? ' <span class="pill">Abierta</span>' : '') + (v2 ? '' : ' <span class="pill off">Formato anterior</span>') + '<div class="hint">' + esc(c.glpi_nombre || '') + ' · ' + esc(c.tip_nombre || '') + '</div></td>' +
+      return '<tr data-id="' + c.id + '"><td><b>' + esc(c.periodo || '-') + '</b>' + (act ? ' <span class="pill">Abierta</span>' : '') + (v2 ? '' : ' <span class="pill off">Formato anterior</span>') + (v2 && r.revPend ? ' <span class="pill warn">Revisión pendiente: ' + num(r.revPend) + '</span>' : '') + '<div class="hint">' + esc(c.glpi_nombre || '') + ' · ' + esc(c.tip_nombre || '') + '</div></td>' +
         '<td class="n">' + esc(corteTxt(c.corte)) + '</td>' +
         '<td class="ed" data-f="responsable">' + esc(c.responsable || '-') + '</td><td class="ed" data-f="nps">' + esc(c.nps || '-') + '</td>' +
         '<td class="n">' + (v2 ? num(r.vol.glpi) + ' / ' + num(r.g.sgu.creados) : '-') + '</td><td class="n">' + (v2 ? num(r.prod.casos) : '-') + '</td>' +
@@ -303,10 +312,10 @@
         var snap = E.snapshot(R); snap.v = 3; snap.vol = { glpi: R.volumen.glpi };
         return gzip(empaquetar(res[0], res[1])).then(function (gz) {
           return api('POST', 'cargas', { datos: u8ToB64(gz), corte: corte, periodo: periodo, responsable: resp, nps: nps, glpi_nombre: files.g.name, tip_nombre: files.t.name, resumen: snap, meses: meses });
-        }).then(function (j) { CACHE[j.id] = { glpi: res[0], tip: res[1] }; return j.id; });
+        }).then(function (j) { CACHE[j.id] = { glpi: res[0], tip: res[1] }; S.heredadas = j.heredadas || 0; return j.id; });
       }).then(function (id) {
         return cargarLista().then(function () { return activar(id); });
-      }).then(function () { toast('Carga guardada. Abriendo el informe…'); location.hash = '#informe'; })
+      }).then(function () { toast('Carga guardada' + (S.heredadas ? ' · se tomaron ' + num(S.heredadas) + ' decisiones de revisión del corte anterior' : '') + '. Abriendo el informe…'); S.verRev = false; location.hash = '#informe'; })
         .catch(function (e) { fail(e.message); });
     });
 
@@ -430,10 +439,15 @@
       var KQ = R.controles, alertas = [];
       if (KQ.posiblesDuplicados.length) alertas.push(num(KQ.posiblesDuplicados.length) + ' posible' + (KQ.posiblesDuplicados.length === 1 ? '' : 's') + ' ticket' + (KQ.posiblesDuplicados.length === 1 ? '' : 's') + ' duplicado' + (KQ.posiblesDuplicados.length === 1 ? '' : 's') + ' en GLPI (misma cuenta y categoría, abiertos con menos de 60 minutos de diferencia)');
       if (KQ.nombres.length) alertas.push(num(KQ.nombres.length) + ' nombre' + (KQ.nombres.length === 1 ? '' : 's') + ' inconsistente' + (KQ.nombres.length === 1 ? '' : 's') + ' entre el título y "Nombre Cliente"');
-      if (KQ.sinCuenta.length) alertas.push(num(KQ.sinCuenta.length) + ' ticket' + (KQ.sinCuenta.length === 1 ? '' : 's') + ' SGU sin número de cuenta en el título (no entran en reincidencias)');
+      if (KQ.sinCuenta.length) alertas.push(num(KQ.sinCuenta.length) + ' ticket' + (KQ.sinCuenta.length === 1 ? '' : 's') + ' FTTH SGU sin "Nombre Cliente" (no entran en reincidencias)');
       body = (alertas.length ? '<div class="c12 msg alerta" role="note"><b>Alertas de calidad:</b> ' + esc(alertas.join('; ')) + '. Revise el detalle en la página Controles. Esta alerta solo se muestra en el Informe.</div>' : '') + GS.map(function (g) { var x = G[g].reinc; return '<div class="viz card c3 xable"' + xa({ k: 'reinc', g: g }) + '><div class="t">Reincidencia FTTH ' + chipH(g) + '</div><div class="v">' + num(x.abonados) + '<small>abonados</small></div><div class="n">' + num(x.tickets) + ' tickets · ' + pct(x.pct) + ' de ' + num(x.ftth) + ' FTTH</div></div>'; }).join('') +
         tile('c5', 'Categorías de los tickets reincidentes', 'SGU total', rc.length ? C.hbars({ title: 'Reincidencia por categoría', labels: rc, labelW: 170, series: [{ name: 'Tickets', color: COLORS.brand, values: rc.map(function (k) { return RI.porCategoria[k]; }) }], fmt: num }) : '<p class="hint">Sin reincidencias.</p>') +
-        tile('c7', 'Cuentas reincidentes FTTH', 'SGU total · por número de cuenta del título · no cuenta nada de Cobranzas Masivas' + (R.reincExcluidas.filter(function (c) { return !/cobranzas masivas/i.test(c); }).length ? ' ni ' + R.reincExcluidas.filter(function (c) { return !/cobranzas masivas/i.test(c); }).map(function (c) { return E.catCorta(c).toLowerCase(); }).join(', ') : ''), table('<th>Cliente</th><th>Cuenta</th><th>Categorías</th><th>Tickets</th>', '', RI.detalle.length ? RI.detalle.map(function (d) { return { cells: [d.nombre, d.cuenta, d.categorias.join('\n'), d.tickets.map(function (t) { return t.id + (t.pia ? ' (PIA)' : ''); }).join('\n')] }; }) : [{ cells: ['Sin reincidencias', '', '', ''] }]));
+        tile('c7', 'Clientes reincidentes FTTH', 'SGU total · por "Nombre Cliente" de GLPI (la cuenta sale del título) · no cuenta nada de Cobranzas Masivas' + (R.reincExcluidas.filter(function (c) { return !/cobranzas masivas/i.test(c); }).length ? ' ni ' + R.reincExcluidas.filter(function (c) { return !/cobranzas masivas/i.test(c); }).map(function (c) { return E.catCorta(c).toLowerCase(); }).join(', ') : ''), table('<th>Cliente</th><th>Cuenta</th><th>Categorías</th><th>Tickets</th>', '', RI.detalle.length ? RI.detalle.map(function (d) { return { cells: [d.nombre, d.cuenta, d.categorias.join('\n'), d.tickets.map(function (t) { return t.id + (t.pia ? ' (PIA)' : ''); }).join('\n')] }; }) : [{ cells: ['Sin reincidencias', '', '', ''] }]));
+      var RG = R.reincidenciaGeneral, rgc = Object.keys(RG.porCategoria).sort(function (x, y) { return RG.porCategoria[y] - RG.porCategoria[x]; }).slice(0, 15);
+      body += '<div class="c12 sec-h"><h2>Reincidencia general · todas las categorías</h2><p class="hint">Mismo cliente ("Nombre Cliente" de GLPI) con 2 o más tickets de cualquier categoría, sin excepción. La revisión humana se hace solo en SGU; el país cuenta sin revisión.</p></div>' +
+        GS.map(function (g) { var x = G[g].reincGen; return '<div class="viz card c3 xable"' + xa({ k: 'reincGen', g: g }) + '><div class="t">Reincidencia general ' + chipH(g) + '</div><div class="v">' + num(x.abonados) + '<small>clientes</small></div><div class="n">' + num(x.tickets) + ' tickets · ' + pct(x.pct) + ' de ' + num(x.ftth) + ' tickets</div></div>'; }).join('') +
+        tile('c5', 'Categorías de los tickets reincidentes', 'SGU total · todas las categorías' + (Object.keys(RG.porCategoria).length > 15 ? ' · las 15 con más tickets' : ''), rgc.length ? C.hbars({ title: 'Reincidencia general por categoría', labels: rgc, labelW: 170, series: [{ name: 'Tickets', color: COLORS.brand, values: rgc.map(function (k) { return RG.porCategoria[k]; }) }], fmt: num }) : '<p class="hint">Sin reincidencias.</p>') +
+        tile('c7', 'Clientes reincidentes · todas las categorías', 'SGU total · por "Nombre Cliente" de GLPI', table('<th>Cliente</th><th>Cuenta</th><th>Categorías</th><th>Tickets</th>', '', RG.detalle.length ? RG.detalle.map(function (d) { return { cells: [d.nombre, d.cuenta, d.categorias.join('\n'), d.tickets.map(function (t) { return t.id + (t.pia ? ' (PIA)' : ''); }).join('\n')] }; }) : [{ cells: ['Sin reincidencias', '', '', ''] }]));
     } else if (i === 5 || i === 6) {
       var semana = i === 5;
       var cols = semana ? ['Abiertos', 'Pendientes', 'Resueltos', 'Pend. acum.', 'Resuelto acum.', '% jornada'] : ['Abiertos', 'Pendientes', 'Resueltos mismo día', '% jornada'];
@@ -467,8 +481,8 @@
         ctl(2, 'Categorías homologadas', num(K.homologadas.length) + ' tickets con ">" o "<" al final (la lista completa está en el Excel)', K.homologadas.length ? table('<th>Categoría original</th><th>Homologada</th><th>Tickets</th>', '', (function () { var m = {}; K.homologadas.forEach(function (x) { var k = x.de + '\u0000' + x.a; m[k] = (m[k] || 0) + 1; }); return Object.keys(m).map(function (k) { var p = k.split('\u0000'); return { cells: [p[0], p[1], num(m[k])] }; }); })()) : '') +
         ctl(3, 'Posibles duplicados (SGU)', num(K.posiblesDuplicados.length) + ' pares: misma cuenta y categoría, abiertos a menos de 60 minutos', K.posiblesDuplicados.length ? table('<th>Cuenta</th><th>Categoría</th><th>Tickets</th><th>Minutos</th>', '', K.posiblesDuplicados.map(function (x) { return { cells: [x.cuenta, x.cat, x.ids.join(' y '), x.minutos] }; })) : '') +
         ctl(4, 'Nombres inconsistentes (SGU)', num(K.nombres.length) + ' casos', K.nombres.length ? table('<th>Cuenta</th><th>Ticket</th><th>Tipo</th><th>Nombre en el título</th><th>"Nombre Cliente"</th>', '', K.nombres.map(function (x) { return { cells: [x.cuenta, x.id, x.tipo, x.titulo, x.campo] }; })) : '') +
-        ctl(5, 'Tickets SGU sin cuenta en el título', num(K.sinCuenta.length) + ' tickets (no entran en reincidencias)', K.sinCuenta.length ? table('<th>Ticket</th><th>Título</th>', '', K.sinCuenta.map(function (x) { return { cells: [x.id, x.titulo] }; })) : '') +
-        ctl('5b', 'Cuenta del título distinta a la de la descripción (FTTH)', num((K.cuentaDistinta || []).length) + ' tickets: la reincidencia usa la cuenta del título; revise si el título tiene un error de tipeo' + (K.cuentaDeDescripcion ? ' · ' + num(K.cuentaDeDescripcion) + ' tickets sin cuenta en el título la tomaron de la descripción' : ''), (K.cuentaDistinta || []).length ? table('<th>Ticket</th><th>Grupo</th><th>Cuenta en el título</th><th>Cuenta en la descripción</th><th>Título</th>', '', K.cuentaDistinta.map(function (x) { return { cells: [x.id, x.grupo, x.cuentaTitulo, x.cuentaDesc, x.titulo] }; })) : '') +
+        ctl(5, 'Tickets FTTH SGU sin "Nombre Cliente"', num(K.sinCuenta.length) + ' tickets con el nombre vacío o con error (no entran en reincidencias)', K.sinCuenta.length ? table('<th>Ticket</th><th>Título</th><th>Nombre Cliente</th>', '', K.sinCuenta.map(function (x) { return { cells: [x.id, x.titulo, x.cliente] }; })) : '') +
+        ctl('5b', 'Cuenta del título distinta a la de la descripción (FTTH)', num((K.cuentaDistinta || []).length) + ' tickets: la tabla de reincidencias muestra la cuenta del título; revise si el título tiene un error de tipeo' + (K.cuentaDeDescripcion ? ' · ' + num(K.cuentaDeDescripcion) + ' tickets sin cuenta en el título la tomaron de la descripción' : ''), (K.cuentaDistinta || []).length ? table('<th>Ticket</th><th>Grupo</th><th>Cuenta en el título</th><th>Cuenta en la descripción</th><th>Título</th>', '', K.cuentaDistinta.map(function (x) { return { cells: [x.id, x.grupo, x.cuentaTitulo, x.cuentaDesc, x.titulo] }; })) : '') +
         ctl(6, 'Tickets del PIA fuera de SGU', num(K.piaFueraSGU.length) + ' tickets: el solicitante es el PIA pero el título no dice "' + R.cfg.sguMarker + '"', K.piaFueraSGU.length ? table('<th>Ticket</th><th>Título</th>', '', K.piaFueraSGU.map(function (x) { return { cells: [x.id, x.titulo] }; })) : '') +
         ctl(7, 'Cambios de plan sin dirección clara', num(K.planIndefinido.length) + ' tickets para revisar a mano (no cuentan como upgrade)', K.planIndefinido.length ? table('<th>Ticket</th><th>Grupo</th><th>Extracto</th>', '', K.planIndefinido.map(function (x) { return { cells: [x.id, x.grupo, x.extracto] }; })) : '') +
         ctl(8, 'Totales entre tablas', K.totales.every(function (x) { return x.ok; }) ? 'Coinciden en los cuatro grupos' : 'Hay diferencias: revisar', table('<th>Grupo</th><th>Creados</th><th>Solucionados</th><th>Suma 5.1</th><th>Suma 5.2</th><th>Creados 5.3</th><th>Solucionados 5.3</th><th>Estado</th>', '', K.totales.map(function (x) { return { cells: [x.grupo, num(x.creados), num(x.solucionados), num(x.t51), num(x.t52), num(x.t53c), num(x.t53s), x.ok ? 'Coincide' : 'Revisar'] }; }))) +
@@ -512,10 +526,94 @@
       '<div class="apply"><button type="button" class="btn sm" data-role="cancel">Cancelar</button><button type="button" class="btn sm primary" data-role="apply">Aplicar</button></div></div>';
   }
 
+  /* ================= revisión humana de reincidencias ================= */
+  var AMBITO = { sgu: 'SGU', pais: 'País' };
+  var TIPO_R = { ftth: 'Fallas FTTH', general: 'Todas las categorías' };
+  function chipsCaso(ambito, tipo) { return '<span class="pill">' + AMBITO[ambito] + '</span><span class="pill tipo-' + (tipo || 'ftth') + '">' + TIPO_R[tipo || 'ftth'] + '</span>'; }
+  function revPend(R) { return R && R.revision ? R.revision.pendientes.length : 0; }
+  function celdaDato(v, ok, tipo) { return ok ? esc(v) : '<span class="bad">' + (v ? esc(v) + ' · revisar' : 'No identificad' + (tipo === 'c' ? 'a' : 'o')) + '</span>'; }
+  function tablaRev(tks, sel, procede, previos) {
+    var marcas = procede ? function (t) { return procede.indexOf(t.id) >= 0 ? '<span class="pill on">Procede</span>' : '<span class="pill off">No procede</span>'; } : null;
+    return '<div class="tbl"><table class="data"><thead><tr>' + (sel ? '<th>Procede</th>' : '') + (marcas ? '<th>Decisión</th>' : '') + '<th>Ticket</th><th>Apertura</th><th>Cédula</th><th>Contrato</th><th>Categoría</th><th>Estado</th><th>Título</th></tr></thead><tbody>' +
+      tks.map(function (t) {
+        return '<tr>' + (sel ? '<td class="n"><input type="checkbox"' + (previos && previos.indexOf(t.id) >= 0 ? ' checked' : '') + ' value="' + esc(t.id) + '" aria-label="Procede el ticket ' + esc(t.id) + '"></td>' : '') + (marcas ? '<td>' + marcas(t) + '</td>' : '') +
+          '<td class="n">' + esc(t.id) + (t.pia ? ' <span class="pill">PIA</span>' : '') + '</td><td class="n">' + esc(corteTxt(t.apertura)) + '</td>' +
+          '<td class="n">' + celdaDato(t.cedula, t.cedulaOk, 'c') + '</td><td class="n">' + celdaDato(t.cuenta, t.cuentaOk, 'o') + '</td>' +
+          '<td>' + esc(E.catCorta(t.cat)) + '</td><td>' + esc(t.estado) + '</td><td class="tit">' + esc(t.titulo) + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+  }
+  function paginaRevision(R) {
+    var P = R.revision.pendientes, V = R.revision.revisados, tot = R.revision.total, hechos = V.length;
+    var vista = S.revVista === 'revisados' && V.length ? 'revisados' : (P.length ? 'pendientes' : 'revisados');
+    var head = '<div class="page-h"><div><h1>Revisión de reincidencias</h1><p>' + (P.length
+      ? 'Antes de armar el informe, revise los clientes reincidentes con <b>cédulas distintas</b>, <b>contratos distintos</b> o con la <b>cédula o el contrato sin identificar</b> con seguridad (cédula de 6 a 8 dígitos, contrato de 1 a 6). Decida si la reincidencia procede. La reincidencia de <b>todas las categorías</b> solo se revisa en SGU. Las decisiones quedan guardadas para todos los usuarios, y al subir un corte nuevo se toman las del corte anterior.'
+      : 'Todos los casos están revisados. Puede cambiar una decisión; el informe se recalcula solo.') + '</p></div>' +
+      '<div class="row">' + (P.length ? '' : '<button class="btn primary" id="revVolver">Ver el informe</button>') + '<button class="btn" id="revAct">Actualizar</button></div></div>';
+    var prog = '<div class="revprog"><div class="bar"><span style="width:' + (tot ? Math.round(hechos / tot * 100) : 100) + '%"></span></div><b>' + num(hechos) + ' de ' + num(tot) + '</b> casos revisados' + (P.length ? ' · faltan ' + num(P.length) : '') + '</div>' +
+      '<div class="seg" role="group" aria-label="Vista"><button type="button" data-rv="pendientes" aria-pressed="' + (vista === 'pendientes') + '"' + (P.length ? '' : ' disabled') + '>Pendientes (' + num(P.length) + ')</button><button type="button" data-rv="revisados" aria-pressed="' + (vista === 'revisados') + '"' + (V.length ? '' : ' disabled') + '>Revisados (' + num(V.length) + ')</button></div>';
+    var cuerpo;
+    if (vista === 'pendientes') {
+      cuerpo = P.map(function (p) {
+        var muchos = p.tickets.length > 2;
+        return '<section class="panel revcase" data-clave="' + esc(p.clave) + '" data-n="' + p.tickets.length + '"><div class="rc-h"><b>' + esc(p.nombre) + '</b>' + chipsCaso(p.ambito, p.tipo) + p.motivos.map(function (m) { return '<span class="pill warn">' + esc(m) + '</span>'; }).join('') + '<span class="hint">' + num(p.tickets.length) + ' tickets</span></div>' +
+          (p.anterior ? '<p class="hint">' + (p.anterior.heredada ? 'En el corte anterior' : 'En una revisión anterior') + ' se revisaron ' + num(p.anterior.tickets.length) + ' tickets de este cliente: ' + (p.anterior.procede.length ? 'procedían ' + esc(p.anterior.procede.join(', ')) : 'se descartó la reincidencia') + '. Ahora tiene tickets nuevos.</p>' : '') +
+          tablaRev(p.tickets, muchos, null, p.anterior && p.anterior.procede) +
+          '<div class="row">' + (muchos ? '<span class="hint">Marque los tickets que proceden como reincidencia (al menos 2).</span><span class="spacer"></span><button class="btn primary" data-act="sel">Guardar selección</button>' : '<span class="spacer"></span><button class="btn primary" data-act="todos">Procede como reincidencia</button>') +
+          '<button class="btn danger" data-act="descartar">Descartar como reincidencia</button></div></section>';
+      }).join('');
+    } else {
+      cuerpo = V.map(function (v) {
+        var r = v.revision;
+        return '<section class="panel revcase" data-clave="' + esc(r.clave) + '"><div class="rc-h"><b>' + esc(v.nombre) + '</b>' + chipsCaso(v.ambito, v.tipo) + (v.procede ? '<span class="pill on">Procede: ' + num(r.procede.length) + ' tickets</span>' : '<span class="pill off">Descartado</span>') + r.motivos.map(function (m) { return '<span class="pill warn">' + esc(m) + '</span>'; }).join('') +
+          '<span class="hint">' + (r.reutilizada ? 'Misma decisión que en Fallas FTTH (mismos tickets) · ' : '') + (r.heredada ? 'Decisión del corte anterior · ' : '') + 'Revisado por ' + esc(r.por || '-') + (r.fecha ? ' · ' + fechaHora(r.fecha) : '') + '</span></div>' + tablaRev(r.revisados, false, r.procede) +
+          '<div class="row"><span class="spacer"></span><button class="btn" data-act="reabrir">Cambiar decisión</button></div></section>';
+      }).join('');
+    }
+    return '<div class="page revpage">' + head + prog + cuerpo + '</div>';
+  }
+  function bindRevision() {
+    var pg = document.querySelector('.revpage'); if (!pg) return;
+    var volver = document.getElementById('revVolver'); if (volver) volver.addEventListener('click', function () { S.verRev = false; renderInforme(); });
+    document.getElementById('revAct').addEventListener('click', function () {
+      cargarRevisiones(S.activa.id).then(function (rv) { S.activa.rev = rv; calcular(); renderInforme(); toast('Revisión actualizada.'); });
+    });
+    Array.prototype.forEach.call(pg.querySelectorAll('[data-rv]'), function (b) { b.addEventListener('click', function () { S.revVista = b.getAttribute('data-rv'); renderInforme(); }); });
+    pg.addEventListener('click', function (ev) {
+      var b = ev.target.closest('button[data-act]'); if (!b) return;
+      var box = b.closest('.revcase'), clave = box.getAttribute('data-clave'), act = b.getAttribute('data-act');
+      var R = S.R, p = R.revision.pendientes.filter(function (x) { return x.clave === clave; })[0];
+      var y = window.scrollY, req;
+      if (act === 'reabrir') {
+        req = api('DELETE', 'cargas/' + S.activa.id + '/revisiones?clave=' + encodeURIComponent(clave)).then(function () { delete S.activa.rev[clave]; S.revVista = 'pendientes'; });
+      } else {
+        if (!p) return;
+        var tks = p.tickets.map(function (t) { return t.id; }), pro;
+        if (act === 'todos') pro = tks;
+        else if (act === 'descartar') pro = [];
+        else {
+          pro = Array.prototype.map.call(box.querySelectorAll('input[type=checkbox]:checked'), function (i) { return i.value; });
+          if (pro.length < 2) { toast(pro.length ? 'Para que proceda, marque al menos dos tickets. Si no procede ninguno, use "Descartar como reincidencia".' : 'Marque los tickets que proceden, o use "Descartar como reincidencia".', true); return; }
+        }
+        req = api('PUT', 'cargas/' + S.activa.id + '/revisiones', { clave: clave, tickets: tks, procede: pro }).then(function () { S.activa.rev[clave] = { tickets: tks, procede: pro, por: S.yo.email, fecha: new Date().toISOString() }; });
+      }
+      Array.prototype.forEach.call(box.querySelectorAll('button'), function (x) { x.disabled = true; });
+      req.then(function () {
+        var antes = revPend(S.R); calcular(); guardarResumen();
+        if (antes && !revPend(S.R)) { S.verRev = false; toast('Revisión completa. El informe ya está armado.'); } else toast(act === 'reabrir' ? 'El caso volvió a pendientes.' : 'Decisión guardada.');
+        renderInforme(); window.scrollTo(0, act === 'reabrir' ? 0 : y);
+      }, function (e) { Array.prototype.forEach.call(box.querySelectorAll('button'), function (x) { x.disabled = false; }); toast(e.message, true); });
+    });
+  }
+  function puertaRevision(where) {
+    var n = revPend(S.R);
+    return '<div class="page"><div class="empty"><b>' + esc(where) + ' se arma después de la revisión de reincidencias.</b><span class="muted">Faltan ' + num(n) + ' caso' + (n === 1 ? '' : 's') + ' por revisar: clientes reincidentes con cédulas o contratos distintos, o sin identificar con seguridad.</span><a class="btn primary" href="#informe">Ir a la revisión</a></div></div>';
+  }
+
   function renderInforme() {
     var R = S.R;
+    if (R && (revPend(R) || S.verRev)) { shell('informe', ctxSelector(), paginaRevision(R)); bindCtx(); bindRevision(); return; }
     shell('informe', ctxSelector(), R ? '<div class="report"><div class="report-main"><div class="report-bar"><h1>Informe · ' + esc(R.periodoTxt.replace('(', R.anio + ' (')) + '</h1><span class="spacer"></span>' +
-      '<button class="btn" id="xPdf">' + ICONS.down + 'Informe PDF</button><button class="btn" id="xXls">' + ICONS.down + 'Informe Excel</button></div>' +
+      (R.revision.total ? '<button class="btn" id="xRev">Revisión de reincidencias (' + num(R.revision.total) + ')</button>' : '') + '<button class="btn" id="xPdf">' + ICONS.down + 'Informe PDF</button><button class="btn" id="xXls">' + ICONS.down + 'Informe Excel</button></div>' +
       '<div class="canvas" id="canvas">' + paginaInforme(S.tab, R, S.cmp || 0) + '</div>' +
       '<div class="tabs" role="tablist">' + PAGINAS.map(function (p, i) { return '<button type="button" role="tab" data-t="' + i + '" aria-selected="' + (i === S.tab) + '">' + esc(p) + (i === 8 && controlesAlerta(R) ? ' <span class="dot" title="Hay elementos para revisar"></span>' : '') + '</button>'; }).join('') + '</div></div>' +
       filterPane(R) + '</div>' : sinCarga('el informe'));
@@ -524,6 +622,7 @@
     Array.prototype.forEach.call(document.querySelectorAll('.tabs button'), function (b) { b.addEventListener('click', function () { S.tab = +b.getAttribute('data-t'); renderInforme(); }); });
     Array.prototype.forEach.call(document.querySelectorAll('[data-cmp]'), function (b) { b.addEventListener('click', function () { S.cmp = +b.getAttribute('data-cmp'); renderInforme(); }); });
     document.getElementById('xXls').addEventListener('click', exportExcel);
+    var xr = document.getElementById('xRev'); if (xr) xr.addEventListener('click', function () { S.verRev = true; S.revVista = 'revisados'; renderInforme(); });
     document.getElementById('xPdf').addEventListener('click', exportInformePdf);
     bindFilterPane(renderInforme);
     var canvas = document.getElementById('canvas');
@@ -687,9 +786,14 @@
     var tr2 = ['Total semanal', '']; GS.forEach(function (g) { var t = G[g].jornada.total; tr2.push(t.abiertos, t.pendientes, t.mismoDia, t.pct); }); md.push(tr2);
     add('5.5 Mismo día', md, [12, 12]);
     add('5.6 Gestión semanal', [['Grupo', 'Abiertos', 'Resueltos', 'Cerrados', 'Resueltos mismo día', '% jornada']].concat(GS.map(function (g) { var x = G[g].gestion; return [L[g], x.abiertos, x.resueltos, x.cerrados, x.mismoDia, x.pct]; })), [22, 12, 12, 12, 18, 12]);
-    var ra = [['Cliente', 'Cuenta', 'Categorías', 'Ticket', 'Categoría del ticket', 'Estado', 'Creado por el PIA', 'Tickets de la cuenta']];
-    R.reincidencia.detalle.forEach(function (d) { d.tickets.forEach(function (t) { ra.push([d.nombre, d.cuenta, d.categorias.join(' · '), t.id, t.cat, t.estado, t.pia ? 'Sí' : 'No', d.tickets.length]); }); });
+    var ra = [['Nombre Cliente', 'Cuenta (título)', 'Categorías', 'Ticket', 'Categoría del ticket', 'Estado', 'Creado por el PIA', 'Tickets del cliente']];
+    R.reincidencia.detalle.forEach(function (d) { d.tickets.forEach(function (t) { ra.push([d.nombre, t.cuenta, d.categorias.join(' · '), t.id, t.cat, t.estado, t.pia ? 'Sí' : 'No', d.tickets.length]); }); });
     add('5.7 Reincidencias', ra, [38, 10, 40, 12, 40, 14, 10, 10]);
+    var rg = [['Grupo', 'Clientes', 'Tickets', 'Tickets del grupo', '%']];
+    GS.forEach(function (g) { var x = G[g].reincGen; rg.push([L[g], x.abonados, x.tickets, x.ftth, x.pct === null ? '' : Math.round(x.pct * 1000) / 10 + '%']); });
+    rg.push([]); rg.push(['Nombre Cliente', 'Cuenta (título)', 'Categorías', 'Ticket', 'Categoría del ticket', 'Estado', 'Creado por el PIA', 'Tickets del cliente']);
+    R.reincidenciaGeneral.detalle.forEach(function (d) { d.tickets.forEach(function (t) { rg.push([d.nombre, t.cuenta, d.categorias.join(' · '), t.id, t.cat, t.estado, t.pia ? 'Sí' : 'No', d.tickets.length]); }); });
+    add('Reincidencia general', rg, [38, 12, 40, 14, 40, 14, 10, 10]);
     var up = [['Grupo', 'Upgrades', 'Tickets GLPI con aumento', 'Aumentos en Tipificador', 'Repetidos', 'SVA', 'SVA en GLPI', 'SVA en Tipificador', 'Cambios de plan GLPI', 'A plan menor o revertidos']];
     GS.forEach(function (g) { var u = G[g].upgrades, v = G[g].sva; up.push([L[g], u.n, u.glpi.join(', '), u.tip, u.repetidos, v.n, v.glpi.join(', '), v.tip, u.cambiosPlan, u.bajas]); });
     add('Upgrades y SVA', up, [22, 10, 50, 12, 10, 8, 30, 12, 12, 14]);
@@ -698,13 +802,17 @@
     ca.push(['2. Categorías homologadas', K.homologadas.length + ' tickets', '', '']); K.homologadas.forEach(function (x) { ca.push(['', '', x.id, x.de + ' → ' + x.a]); });
     ca.push(['3. Posibles duplicados (SGU)', K.posiblesDuplicados.length + ' pares', '', '']); K.posiblesDuplicados.forEach(function (x) { ca.push(['', '', x.ids.join(' y '), 'Cuenta ' + x.cuenta + ' · ' + x.cat + ' · ' + x.minutos + ' min']); });
     ca.push(['4. Nombres inconsistentes (SGU)', K.nombres.length + ' casos', '', '']); K.nombres.forEach(function (x) { ca.push(['', x.tipo, x.id || ('Cuenta ' + x.cuenta), x.titulo + (x.campo ? ' / ' + x.campo : '')]); });
-    ca.push(['5. Tickets SGU sin cuenta', K.sinCuenta.length + ' tickets', '', '']); K.sinCuenta.forEach(function (x) { ca.push(['', '', x.id, x.titulo]); });
-    ca.push(['5b. Cuenta del título distinta a la descripción (FTTH)', (K.cuentaDistinta || []).length + ' tickets', '', '']); (K.cuentaDistinta || []).forEach(function (x) { ca.push(['', x.grupo, x.id, 'Título: ' + x.cuentaTitulo + ' · Descripción: ' + x.cuentaDesc + ' · ' + x.titulo]); });
+    ca.push(['5. Tickets FTTH SGU sin "Nombre Cliente"', K.sinCuenta.length + ' tickets', '', '']); K.sinCuenta.forEach(function (x) { ca.push(['', x.cliente, x.id, x.titulo]); });
+    ca.push(['5b. Cuenta del título distinta a la descripción (FTTH, solo informativo)', (K.cuentaDistinta || []).length + ' tickets', '', '']); (K.cuentaDistinta || []).forEach(function (x) { ca.push(['', x.grupo, x.id, 'Título: ' + x.cuentaTitulo + ' · Descripción: ' + x.cuentaDesc + ' · ' + x.titulo]); });
     ca.push(['6. Tickets del PIA fuera de SGU', K.piaFueraSGU.length + ' tickets', '', '']); K.piaFueraSGU.forEach(function (x) { ca.push(['', '', x.id, x.titulo]); });
     ca.push(['7. Cambios de plan sin dirección clara', K.planIndefinido.length + ' tickets', '', '']); K.planIndefinido.forEach(function (x) { ca.push(['', x.grupo, x.id, x.extracto]); });
     ca.push(['8. Totales entre tablas', K.totales.every(function (x) { return x.ok; }) ? 'Coinciden' : 'Revisar', '', '']); K.totales.forEach(function (x) { ca.push(['', x.ok ? 'Coincide' : 'Revisar', x.grupo, 'Creados ' + x.creados + ' / solucionados ' + x.solucionados + ' · 5.1 ' + x.t51 + ' · 5.2 ' + x.t52 + ' · 5.3 ' + x.t53c + '/' + x.t53s]); });
     if (K.reversiones.length) { ca.push(['Cambios de plan revertidos (no cuentan)', K.reversiones.length + ' tickets', '', '']); K.reversiones.forEach(function (x) { ca.push(['', '', x.id, x.extracto]); }); }
     add('Controles', ca, [38, 30, 18, 90]);
+    var rv = [['Ámbito', 'Reincidencia', 'Nombre Cliente', 'Motivos', 'Ticket', 'Cédula', 'Contrato', 'Título', 'Decisión', 'Revisado por', 'Fecha']];
+    R.revision.revisados.forEach(function (v) { var r = v.revision; r.revisados.forEach(function (t) { rv.push([AMBITO[v.ambito], TIPO_R[v.tipo || 'ftth'], v.nombre, r.motivos.join('; '), t.id, t.cedula || 'No identificada', t.cuenta || 'No identificado', t.titulo, r.procede.indexOf(t.id) >= 0 ? 'Procede' : 'No procede', r.por, r.fecha ? fechaHora(r.fecha) : '']); }); });
+    R.revision.pendientes.forEach(function (p) { p.tickets.forEach(function (t) { rv.push([AMBITO[p.ambito], TIPO_R[p.tipo || 'ftth'], p.nombre, p.motivos.join('; '), t.id, t.cedula || 'No identificada', t.cuenta || 'No identificado', t.titulo, 'Pendiente', '', '']); }); });
+    add('Revisión reincidencias', rv, [10, 20, 34, 40, 10, 12, 12, 70, 12, 28, 18]);
     var buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
     saveBlob(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), 'Informe ' + baseName() + '.xlsx');
   }
@@ -752,6 +860,7 @@
   function renderDeck() {
     var R = S.R;
     if (!R) { shell('presentacion', ctxSelector(), sinCarga('la presentación')); bindCtx(); return; }
+    if (revPend(R)) { shell('presentacion', ctxSelector(), puertaRevision('La presentación')); bindCtx(); return; }
     var deck = buildHtmlDeck(), n = deck.slides.length;
     if (S.slide >= n) S.slide = n - 1;
     shell('presentacion', ctxSelector(), '<div class="deck"><div class="deck-bar"><div class="seg" role="group" aria-label="Presentación">' + DECKS.map(function (d) { return '<button type="button" data-deck="' + d[0] + '" aria-pressed="' + (deckTipo() === d[0]) + '">' + d[1] + '</button>'; }).join('') + '</div><b>' + esc(R.periodoTxt.replace('(', R.anio + ' (')) + '</b><span class="hint">' + n + ' diapositivas</span><span class="spacer"></span>' +

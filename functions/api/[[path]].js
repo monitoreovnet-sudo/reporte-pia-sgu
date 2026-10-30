@@ -28,6 +28,7 @@ const ESQUEMA = [
   `CREATE TABLE IF NOT EXISTS sesiones (token TEXT PRIMARY KEY, email TEXT NOT NULL, creado TEXT NOT NULL, expira INTEGER NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS intentos (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, ip TEXT, ts INTEGER NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS cargas (id TEXT PRIMARY KEY, creado TEXT NOT NULL, creado_por TEXT NOT NULL, corte REAL NOT NULL, periodo TEXT, responsable TEXT, nps TEXT, glpi_nombre TEXT, tip_nombre TEXT, resumen TEXT, partes INTEGER NOT NULL, bytes INTEGER NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS revisiones (carga_id TEXT NOT NULL, clave TEXT NOT NULL, tickets TEXT NOT NULL, procede TEXT NOT NULL, por TEXT NOT NULL, fecha TEXT NOT NULL, PRIMARY KEY (carga_id, clave))`,
   `CREATE TABLE IF NOT EXISTS carga_partes (carga_id TEXT NOT NULL, idx INTEGER NOT NULL, datos BLOB NOT NULL, PRIMARY KEY (carga_id, idx))`,
   `CREATE INDEX IF NOT EXISTS intentos_ts ON intentos (ts)`
 ];
@@ -37,6 +38,7 @@ async function preparar(db) {
   if (listo) return;
   await db.batch(ESQUEMA.map((q) => db.prepare(q)));
   try { await db.prepare(`ALTER TABLE cargas ADD COLUMN meses TEXT`).run(); } catch (e) { /* la columna ya existe */ }
+  try { await db.prepare(`ALTER TABLE revisiones ADD COLUMN heredada INTEGER NOT NULL DEFAULT 0`).run(); } catch (e) { /* la columna ya existe */ }
   const hay = await db.prepare(`SELECT COUNT(*) AS n FROM usuarios`).first();
   if (!hay || !hay.n) {
     const ahora = new Date().toISOString();
@@ -172,7 +174,15 @@ async function crearCarga(db, req, yo) {
     stmts.push(db.prepare(`INSERT INTO carga_partes (carga_id, idx, datos) VALUES (?, ?, ?)`).bind(id, i, bytes.slice(i * CHUNK, (i + 1) * CHUNK)));
   }
   await db.batch(stmts);
-  return json({ id }, 201);
+  /* hereda las decisiones de revisión de la carga anterior (la de corte más reciente antes de esta);
+     solo se aplican a los clientes cuyos tickets ya estaban revisados, el resto queda pendiente */
+  let heredadas = 0;
+  const prev = await db.prepare(`SELECT id FROM cargas WHERE id != ? AND corte <= ? ORDER BY corte DESC, creado DESC LIMIT 1`).bind(id, b.corte).first();
+  if (prev) {
+    const r = await db.prepare(`INSERT OR IGNORE INTO revisiones (carga_id, clave, tickets, procede, por, fecha, heredada) SELECT ?, clave, tickets, procede, por, fecha, 1 FROM revisiones WHERE carga_id = ?`).bind(id, prev.id).run();
+    heredadas = (r.meta && r.meta.changes) || 0;
+  }
+  return json({ id, heredadas }, 201);
 }
 
 async function leerCarga(db, id) {
@@ -198,7 +208,33 @@ async function editarCarga(db, req, id) {
 }
 
 async function borrarCarga(db, id) {
-  await db.batch([db.prepare(`DELETE FROM carga_partes WHERE carga_id = ?`).bind(id), db.prepare(`DELETE FROM cargas WHERE id = ?`).bind(id)]);
+  await db.batch([db.prepare(`DELETE FROM carga_partes WHERE carga_id = ?`).bind(id), db.prepare(`DELETE FROM revisiones WHERE carga_id = ?`).bind(id), db.prepare(`DELETE FROM cargas WHERE id = ?`).bind(id)]);
+  return json({ ok: true });
+}
+
+/* Revisión humana de reincidencias: una decisión por cliente y ámbito ("sgu|nombre" o "pais|nombre") */
+const ids = (a) => (Array.isArray(a) ? a.map((x) => String(x).slice(0, 20)).slice(0, 200) : []);
+async function leerRevisiones(db, id) {
+  const r = await db.prepare(`SELECT clave, tickets, procede, por, fecha, heredada FROM revisiones WHERE carga_id = ?`).bind(id).all();
+  const out = {};
+  (r.results || []).forEach((x) => { out[x.clave] = { tickets: JSON.parse(x.tickets), procede: JSON.parse(x.procede), por: x.por, fecha: x.fecha, heredada: !!x.heredada }; });
+  return json({ revisiones: out });
+}
+async function guardarRevision(db, req, yo, id) {
+  const b = await cuerpo(req);
+  if (!b || typeof b.clave !== 'string' || !/^g?(sgu|pais)\|/.test(b.clave)) return error(400, 'Revisión no válida.');
+  const c = await db.prepare(`SELECT id FROM cargas WHERE id = ?`).bind(id).first();
+  if (!c) return error(404, 'Esa carga ya no existe.');
+  const tk = ids(b.tickets), pr = ids(b.procede).filter((t) => tk.includes(t));
+  if (tk.length < 2) return error(400, 'La revisión necesita al menos dos tickets.');
+  if (pr.length === 1) return error(400, 'Para que proceda, seleccione al menos dos tickets, o descarte la reincidencia.');
+  await db.prepare(`INSERT INTO revisiones (carga_id, clave, tickets, procede, por, fecha, heredada) VALUES (?, ?, ?, ?, ?, ?, 0)
+    ON CONFLICT (carga_id, clave) DO UPDATE SET tickets = excluded.tickets, procede = excluded.procede, por = excluded.por, fecha = excluded.fecha, heredada = 0`)
+    .bind(id, b.clave.slice(0, 300), JSON.stringify(tk), JSON.stringify(pr), yo.email, ahoraISO()).run();
+  return json({ ok: true });
+}
+async function reabrirRevision(db, id, clave) {
+  await db.prepare(`DELETE FROM revisiones WHERE carga_id = ? AND clave = ?`).bind(id, clave).run();
   return json({ ok: true });
 }
 
@@ -306,6 +342,10 @@ export async function onRequest(context) {
     if (r && m === 'GET') return leerCarga(db, r[1]);
     if (r && m === 'PATCH') return editarCarga(db, req, r[1]);
     if (r && m === 'DELETE') return yo.admin ? borrarCarga(db, r[1]) : error(403, 'Solo un administrador puede eliminar cargas.');
+    r = ruta.match(/^cargas\/([a-f0-9]{16})\/revisiones$/);
+    if (r && m === 'GET') return leerRevisiones(db, r[1]);
+    if (r && m === 'PUT') return guardarRevision(db, req, yo, r[1]);
+    if (r && m === 'DELETE') { const cl = url.searchParams.get('clave'); return cl ? reabrirRevision(db, r[1], cl) : error(400, 'Falta el cliente.'); }
     if (ruta === 'filtros' && m === 'GET') return leerFiltros(db);
     if (ruta === 'filtros' && m === 'PUT') return guardarFiltros(db, req, yo);
 

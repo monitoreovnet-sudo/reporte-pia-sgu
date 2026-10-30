@@ -41,6 +41,8 @@
   function stripAccents(s) { return String(s).normalize('NFD').replace(/[̀-ͯ]/g, ''); }
   function hkey(s) { return stripAccents(norm(s)).replace(/[^a-z0-9]+/g, ' ').trim(); }
   function eq(a, b) { return norm(a) === norm(b); }
+  /* "Nombre Cliente" válido: con letras y sin errores de Excel ("#NAME?") */
+  function claveCliente(n) { var s = String(n == null ? '' : n).trim(); if (!s || s.charAt(0) === '#') return ''; var k = hkey(s); return /[a-z].*[a-z]/.test(k) ? k : ''; }
   function fixText(s) {
     s = s == null ? '' : String(s);
     if (/[ÃÂ]/.test(s)) { try { return decodeURIComponent(escape(s)); } catch (e) { return s; } }
@@ -346,7 +348,7 @@
         cat: cat, catK: norm(cat), grpL: grpLabel(raw.grupo), grpK: grpKey(raw.grupo),
         dAp: Math.floor(raw.apertura + 1e-9), dSol: res && raw.solucion !== null ? Math.floor(raw.solucion + 1e-9) : null,
         dCie: raw.cierre !== null ? Math.floor(raw.cierre + 1e-9) : null, cierre: raw.cierre,
-        cuenta: acc.cuenta, nombreTitulo: acc.nombre, cuentaOrigen: origen, cuentaDesc: cDesc
+        cuenta: acc.cuenta, cedula: acc.cedula, nombreTitulo: acc.nombre, cuentaOrigen: origen, cuentaDesc: cDesc
       });
     });
     var EN = {
@@ -432,28 +434,82 @@
     });
 
     /* --- reincidencia FTTH --- */
-    function reincidencia(L) {
-      var ftth = L.filter(function (t) { return esReincidible(t.catK) && reincFuera.indexOf(t.catK) < 0; });
-      var porCuenta = {}, orden = [];
+    /* Revisión humana: un cliente reincidente va a revisión si sus tickets tienen cédulas distintas,
+       contratos distintos, o si en algún ticket no se identifica con seguridad la cédula (6 a 8 dígitos)
+       o el contrato (1 a 6 dígitos). Mientras no se revise, no cuenta como reincidente.
+       Las decisiones se guardan por ámbito: "sgu" (vale para PIA, otras unidades y SGU total) y "pais". */
+    var REV = cfg.revisiones || {};
+    var cedOk = function (c) { return /^\d{6,8}$/.test(c || ''); };
+    var ctaOk = function (c) { return /^\d{1,6}$/.test(c || ''); };
+    function motivosRevision(ts) {
+      var ceds = {}, ctas = {}, m = [];
+      ts.forEach(function (t) { if (t.cedula) ceds[t.cedula] = 1; if (t.cuenta) ctas[t.cuenta] = 1; });
+      if (Object.keys(ceds).length > 1) m.push('Cédulas distintas');
+      if (Object.keys(ctas).length > 1) m.push('Contratos distintos');
+      if (ts.some(function (t) { return !cedOk(t.cedula) || !ctaOk(t.cuenta); })) m.push('Cédula o contrato no identificado con seguridad');
+      return m;
+    }
+    function tkInfo(t) { return { id: t.id, cat: t.cat, estado: t.raw.estado, pia: t.pia, cuenta: t.cuenta || '', cedula: t.cedula || '', cedulaOk: cedOk(t.cedula), cuentaOk: ctaOk(t.cuenta), titulo: t.raw.titulo, apertura: t.raw.apertura, grupo: t.grpL }; }
+    var colaRevision = [];
+    /* tipo 'ftth': categorías FTTH (con los filtros); tipo 'general': todos los tickets, sin excepción.
+       ambito: 'sgu' o 'pais' (prefijo de la decisión); revisar=false cuenta sin revisión humana (general del país). */
+    function reincidencia(L, ambito, tipo, revisar) {
+      var general = tipo === 'general';
+      var ftth = general ? L.slice() : L.filter(function (t) { return esReincidible(t.catK) && reincFuera.indexOf(t.catK) < 0; });
+      /* el cliente se identifica por la columna "Nombre Cliente" (sin acentos, mayúsculas ni signos);
+         la cuenta del título solo se muestra en la tabla */
+      var porCli = {}, orden = [];
       ftth.forEach(function (t) {
-        if (!t.cuenta) return;
-        if (!porCuenta[t.cuenta]) { porCuenta[t.cuenta] = []; orden.push(t.cuenta); }
-        porCuenta[t.cuenta].push(t);
+        var k = claveCliente(t.raw.cliente); if (!k) return;
+        if (!porCli[k]) { porCli[k] = []; orden.push(k); }
+        porCli[k].push(t);
       });
-      var reinc = orden.filter(function (c) { return porCuenta[c].length >= 2; }).map(function (c) {
-        var ts = porCuenta[c];
-        var nombres = ts.map(function (t) { return t.nombreTitulo; }).filter(Boolean);
-        var limpio = nombres.filter(function (n) { return !danado(n); })[0] || nombres[0] || '';
-        var cats = []; ts.forEach(function (t) { var k = catCorta(t.cat); if (cats.indexOf(k) < 0) cats.push(k); });
-        return { cuenta: c, nombre: limpio, categorias: cats, tickets: ts.map(function (t) { return { id: t.id, cat: t.cat, estado: t.raw.estado, pia: t.pia }; }) };
+      var reinc = [], pendientes = [], descartados = [], revisados = 0;
+      orden.forEach(function (k) {
+        var ts = porCli[k]; if (ts.length < 2) return;
+        var motivos = revisar === false ? [] : motivosRevision(ts), rev = null;
+        if (motivos.length) {
+          var clave = (general ? 'g' : '') + ambito + '|' + k, dec = REV[clave];
+          var cubreDe = function (d) { return d && Array.isArray(d.tickets) && ts.every(function (t) { return d.tickets.indexOf(t.id) >= 0; }); };
+          var cubre = cubreDe(dec);
+          /* la general reutiliza la decisión FTTH si revisó los mismos tickets */
+          var decClave = clave, reutilizada = false;
+          if (!cubre && general && cubreDe(REV[ambito + '|' + k])) { dec = REV[ambito + '|' + k]; cubre = true; decClave = ambito + '|' + k; reutilizada = true; }
+          if (!cubre) {
+            var ant = dec && Array.isArray(dec.tickets) ? { tickets: dec.tickets, procede: dec.procede || [], por: dec.por || '', heredada: !!dec.heredada } : null;
+            pendientes.push({ clave: clave, tipo: general ? 'general' : 'ftth', nombre: String(ts[0].raw.cliente).trim().toUpperCase(), motivos: motivos, tickets: ts.map(tkInfo), anterior: ant }); return;
+          }
+          var todos = ts;
+          ts = ts.filter(function (t) { return (dec.procede || []).indexOf(t.id) >= 0; });
+          rev = { clave: decClave, reutilizada: reutilizada, tipo: general ? 'general' : 'ftth', heredada: !!dec.heredada, motivos: motivos, por: dec.por || '', fecha: dec.fecha || '', revisados: todos.map(tkInfo), procede: ts.map(function (t) { return t.id; }) };
+          revisados++;
+          if (ts.length < 2) { descartados.push({ clave: clave, nombre: String(todos[0].raw.cliente).trim().toUpperCase(), revision: rev }); return; }
+        }
+        var ctas = []; ts.forEach(function (t) { if (t.cuenta && ctas.indexOf(t.cuenta) < 0) ctas.push(t.cuenta); });
+        var cats = []; ts.forEach(function (t) { var c = catCorta(t.cat); if (cats.indexOf(c) < 0) cats.push(c); });
+        reinc.push({ cuenta: ctas.join(' / '), cuentas: ctas, nombre: String(ts[0].raw.cliente).trim().toUpperCase(), categorias: cats, revision: rev, tickets: ts.map(tkInfo) });
       });
       reinc.sort(function (a, b) { return b.tickets.length - a.tickets.length || a.nombre.localeCompare(b.nombre, 'es'); });
       var nt = reinc.reduce(function (a, r) { return a + r.tickets.length; }, 0);
       var porCat = {};
-      reinc.forEach(function (r) { r.tickets.forEach(function (t) { var k = catCorta(t.cat); porCat[k] = (porCat[k] || 0) + 1; }); });
-      return { abonados: reinc.length, tickets: nt, ftth: ftth.length, pct: ftth.length ? nt / ftth.length : null, detalle: reinc, porCategoria: porCat, sinCuenta: ftth.filter(function (t) { return !t.cuenta; }) };
+      reinc.forEach(function (r) { r.tickets.forEach(function (t) { var c = catCorta(t.cat); porCat[c] = (porCat[c] || 0) + 1; }); });
+      var sinNombre = ftth.filter(function (t) { return !claveCliente(t.raw.cliente); });
+      return { abonados: reinc.length, tickets: nt, ftth: ftth.length, pct: ftth.length ? nt / ftth.length : null, detalle: reinc, porCategoria: porCat, sinNombre: sinNombre, sinCuenta: sinNombre,
+        pendientes: pendientes, descartados: descartados, revisados: revisados };
     }
-    GRUPOS.forEach(function (g) { porGrupo[g].reinc = reincidencia(porGrupo[g].lista); });
+    GRUPOS.forEach(function (g) {
+      porGrupo[g].reinc = reincidencia(porGrupo[g].lista, g === 'pais' ? 'pais' : 'sgu', 'ftth');
+      /* reincidencia general: todas las categorías; en el país no hay revisión humana */
+      porGrupo[g].reincGen = reincidencia(porGrupo[g].lista, g === 'pais' ? 'pais' : 'sgu', 'general', g !== 'pais');
+    });
+    /* cola de revisión: FTTH en SGU total (cubre PIA y otras unidades) y País; general solo en SGU */
+    var revisadosLista = [];
+    [['sgu', 'reinc'], ['pais', 'reinc'], ['sgu', 'reincGen']].forEach(function (x) {
+      var RI = porGrupo[x[0]][x[1]];
+      RI.pendientes.forEach(function (p) { p.ambito = x[0]; colaRevision.push(p); });
+      RI.detalle.forEach(function (d) { if (d.revision) revisadosLista.push({ ambito: x[0], tipo: d.revision.tipo, nombre: d.nombre, procede: true, revision: d.revision }); });
+      RI.descartados.forEach(function (d) { revisadosLista.push({ ambito: x[0], tipo: d.revision.tipo, nombre: d.nombre, procede: false, revision: d.revision }); });
+    });
 
     /* --- upgrades y SVA --- */
     var cambios = T.filter(function (t) { return t.catK === norm(cfg.cambioPlanCat); }).map(function (t) {
@@ -572,7 +628,7 @@
     });
     Object.keys(nombresPorCuenta).forEach(function (c) { var ns = Object.keys(nombresPorCuenta[c]).filter(Boolean); if (ns.length > 1) inconsistentes.push({ cuenta: c, id: '', titulo: ns.map(function (k) { return nombresPorCuenta[c][k]; }).join(' / '), campo: '', tipo: 'Cuenta con nombres distintos' }); });
     controles.nombres = inconsistentes;
-    controles.sinCuenta = SGU.filter(function (t) { return !t.cuenta; }).map(function (t) { return { id: t.id, titulo: t.raw.titulo }; });
+    controles.sinCuenta = SGU.filter(function (t) { return esReincidible(t.catK) && reincFuera.indexOf(t.catK) < 0 && !claveCliente(t.raw.cliente); }).map(function (t) { return { id: t.id, titulo: t.raw.titulo, cliente: t.raw.cliente || '' }; });
     /* FTTH del país cuyo número de cuenta en el título no coincide con el de la descripción (posible error de tipeo) */
     controles.cuentaDistinta = T.filter(function (t) { return t.cuentaOrigen === 'título' && t.cuentaDesc && t.cuenta !== t.cuentaDesc && esReincidible(t.catK) && reincFuera.indexOf(t.catK) < 0; })
       .map(function (t) { return { id: t.id, titulo: t.raw.titulo, cuentaTitulo: t.cuenta, cuentaDesc: t.cuentaDesc, grupo: t.pia ? 'PIA' : (t.sgu ? 'SGU otras unidades' : 'País') }; });
@@ -697,10 +753,19 @@
         case 'reinc':
           var RI = porGrupo[g].reinc;
           e.titulo = 'Reincidencia de fallas FTTH · ' + et; e.valor = RI.abonados + ' abonados · ' + RI.tickets + ' tickets';
-          e.definicion = 'Cuentas (número del título) con 2 o más tickets FTTH dentro del mismo grupo en el período.';
-          e.filtros = [filtroPeriodoGLPI, et + ': ' + DEF_G[g] + '.', 'Categoría contiene "FTTH" y no dice "Cobranzas Masivas" (esas nunca cuentan).', reincFuera.length ? 'No cuentan: ' + (cfg.reincExcluir || []).join('; ') + '.' : 'Cuentan todas las categorías FTTH.', 'Cuenta: el último número del título "... - NOMBRE - CÉDULA - CUENTA" (si la cédula trae sufijo, p. ej. 18524490-001, el sufijo no es la cuenta). Si el título no la trae, se toma de la descripción ("Nombre de la cuenta: N"). Tickets sin cuenta no entran (' + RI.sinCuenta.length + ').'];
-          e.pasos = ['Tickets FTTH que cuentan: ' + RI.ftth + '.', 'Cuentas con 2 o más tickets: ' + RI.abonados + ', que suman ' + RI.tickets + ' tickets.', 'Porcentaje: ' + RI.tickets + ' ÷ ' + RI.ftth + ' = ' + pct(RI.pct) + '.'];
-          e.registros = [{ titulo: 'Cuentas reincidentes', cols: ['Cuenta', 'Cliente', 'Ticket', 'Categoría', 'Estado'], filas: RI.detalle.reduce(function (a, d) { return a.concat(d.tickets.map(function (t) { return [d.cuenta, d.nombre, t.id, t.cat, t.estado]; })); }, []) }]; break;
+          e.definicion = 'Clientes (columna "Nombre Cliente" de GLPI) con 2 o más tickets FTTH dentro del mismo grupo en el período. La cuenta que se muestra sale del título.';
+          e.filtros = [filtroPeriodoGLPI, et + ': ' + DEF_G[g] + '.', 'Categoría contiene "FTTH" y no dice "Cobranzas Masivas" (esas nunca cuentan).', reincFuera.length ? 'No cuentan: ' + (cfg.reincExcluir || []).join('; ') + '.' : 'Cuentan todas las categorías FTTH.', 'Cliente repetido: mismo "Nombre Cliente" (sin distinguir mayúsculas, acentos ni signos). Tickets con el nombre vacío o con error ("#NAME?") no entran (' + RI.sinNombre.length + ').', 'Cuenta mostrada: el último número del título "... - NOMBRE - CÉDULA - CUENTA" (si la cédula trae sufijo, p. ej. 18524490-001, el sufijo no es la cuenta); si el título no la trae, se toma de la descripción.'];
+          e.filtros.push('Revisión humana: si un cliente tiene cédulas distintas, contratos distintos, o la cédula (6 a 8 dígitos) o el contrato (1 a 6 dígitos) no se identifican con seguridad, un operador decide qué tickets proceden. Revisados en este grupo: ' + RI.revisados + ' (' + RI.descartados.length + ' descartados); pendientes: ' + RI.pendientes.length + ' (no cuentan hasta revisarse).');
+          e.pasos = ['Tickets FTTH que cuentan: ' + RI.ftth + '.', 'Clientes con 2 o más tickets (después de la revisión): ' + RI.abonados + ', que suman ' + RI.tickets + ' tickets.', 'Porcentaje: ' + RI.tickets + ' ÷ ' + RI.ftth + ' = ' + pct(RI.pct) + '.'];
+          e.registros = [{ titulo: 'Clientes reincidentes', cols: ['Nombre Cliente', 'Cédula (título)', 'Cuenta (título)', 'Ticket', 'Categoría', 'Estado', 'Revisión'], filas: RI.detalle.reduce(function (a, d) { return a.concat(d.tickets.map(function (t) { return [d.nombre, t.cedula, t.cuenta, t.id, t.cat, t.estado, d.revision ? 'Procede (' + d.revision.por + ')' : 'No requirió']; })); }, []) }].concat(RI.descartados.length ? [{ titulo: 'Descartados en la revisión', cols: ['Nombre Cliente', 'Tickets', 'Revisado por'], filas: RI.descartados.map(function (d) { return [d.nombre, d.revision.revisados.map(function (t) { return t.id; }).join(', '), d.revision.por]; }) }] : []).concat(RI.sinNombre.length ? [{ titulo: 'Tickets sin "Nombre Cliente" (no entran)', cols: ['Ticket', 'Título', 'Nombre Cliente'], filas: RI.sinNombre.map(function (t) { return [t.id, t.raw.titulo, t.raw.cliente || '']; }) }] : []); break;
+        case 'reincGen':
+          var RG = porGrupo[g].reincGen;
+          e.titulo = 'Reincidencia general (todas las categorías) · ' + et; e.valor = RG.abonados + ' clientes · ' + RG.tickets + ' tickets';
+          e.definicion = 'Clientes (columna "Nombre Cliente" de GLPI) con 2 o más tickets de cualquier categoría, sin excepción, dentro del mismo grupo en el período.';
+          e.filtros = [filtroPeriodoGLPI, et + ': ' + DEF_G[g] + '.', 'Todas las categorías, sin excepción (incluye facturación, reembolso, cambio de plan y Cobranzas Masivas).', 'Cliente repetido: mismo "Nombre Cliente" (sin distinguir mayúsculas, acentos ni signos). Tickets con el nombre vacío o con error no entran (' + RG.sinNombre.length + ').',
+            g === 'pais' ? 'País: sin revisión humana (todos los clientes repetidos cuentan).' : 'Revisión humana (solo SGU): cédulas distintas, contratos distintos, o cédula/contrato sin identificar con seguridad. Revisados: ' + RG.revisados + ' (' + RG.descartados.length + ' descartados); pendientes: ' + RG.pendientes.length + '. Si la revisión de fallas FTTH ya decidió sobre los mismos tickets, se usa esa decisión.'];
+          e.pasos = ['Tickets del grupo: ' + RG.ftth + '.', 'Clientes con 2 o más tickets' + (g === 'pais' ? '' : ' (después de la revisión)') + ': ' + RG.abonados + ', que suman ' + RG.tickets + ' tickets.', 'Porcentaje: ' + RG.tickets + ' ÷ ' + RG.ftth + ' = ' + pct(RG.pct) + '.'];
+          e.registros = [{ titulo: 'Clientes reincidentes (todas las categorías)', cols: ['Nombre Cliente', 'Cédula (título)', 'Cuenta (título)', 'Ticket', 'Categoría', 'Estado', 'Revisión'], filas: RG.detalle.reduce(function (a, d) { return a.concat(d.tickets.map(function (t) { return [d.nombre, t.cedula, t.cuenta, t.id, t.cat, t.estado, d.revision ? 'Procede (' + d.revision.por + ')' : 'No requirió']; })); }, []) }]; break;
         case 'upgrades': case 'sva':
           var U = porGrupo[g].upgrades, V = porGrupo[g].sva;
           if (x.k === 'upgrades') {
@@ -792,7 +857,7 @@
       resumenGrupos[g] = {
         creados: P.creados, solucionados: P.solucionados, pctSol: P.creados ? P.solucionados / P.creados : null,
         prom: P.tiempo.prom, moda: P.tiempo.moda, semana: P.semana, gestion: P.gestion, jornada: P.jornada,
-        reinc: P.reinc, upgrades: P.upgrades, sva: P.sva
+        reinc: P.reinc, reincGen: P.reincGen, upgrades: P.upgrades, sva: P.sva
       };
     });
 
@@ -809,6 +874,8 @@
       fijos: fijos, g: resumenGrupos, comparativos: comparativos,
       tiempoCategoria: tiempoCategoria, tiempoGrupo: tiempoGrupo, productividad: productividad, otros: otros,
       reincidencia: porGrupo.sgu.reinc,
+      reincidenciaGeneral: porGrupo.sgu.reincGen,
+      revision: { pendientes: colaRevision, revisados: revisadosLista, total: colaRevision.length + revisadosLista.length },
       brechas: brechas,
       controles: controles,
       volumen: { glpi: T.length, tipSA: tipSA.length, tipMes: tipMes.length },
@@ -820,10 +887,10 @@
 
   /** Valores compactos de un corte, para guardar en D1 y comparar meses. */
   function snapshot(R) {
-    var o = { corte: R.corteFecha, periodo: R.periodoTxt, ir: R.fijos.ir, fcr: R.fijos.fcr, prod: R.fijos.productividad, estatus: R.fijos.estatus, g: {} };
+    var o = { corte: R.corteFecha, periodo: R.periodoTxt, ir: R.fijos.ir, fcr: R.fijos.fcr, prod: R.fijos.productividad, estatus: R.fijos.estatus, g: {}, revPend: R.revision ? R.revision.pendientes.length : 0 };
     GRUPOS.forEach(function (k) {
       var x = R.g[k];
-      o.g[k] = { creados: x.creados, solucionados: x.solucionados, prom: x.prom, moda: x.moda, semana: x.semana.pct, mismoDia: x.gestion.pct, reincAb: x.reinc.abonados, reincTk: x.reinc.tickets, upgrades: x.upgrades.n, sva: x.sva.n };
+      o.g[k] = { creados: x.creados, solucionados: x.solucionados, prom: x.prom, moda: x.moda, semana: x.semana.pct, mismoDia: x.gestion.pct, reincAb: x.reinc.abonados, reincTk: x.reinc.tickets, reincGenAb: x.reincGen.abonados, reincGenTk: x.reincGen.tickets, upgrades: x.upgrades.n, sva: x.sva.n };
     });
     o.comparativos = {}; Object.keys(R.comparativos).forEach(function (k) { o.comparativos[k] = { dif: R.comparativos[k].dif, ganador: R.comparativos[k].ganador }; });
     return o;

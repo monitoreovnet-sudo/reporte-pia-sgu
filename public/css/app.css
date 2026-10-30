@@ -247,3 +247,21 @@ td.xable:hover { background: #fbf3ff !important; }
 .chk { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; cursor: pointer; }
 .logic-b > section, .logic-b details { min-width: 0; max-width: 100%; }
 .logic-b details .tbl { max-width: 100%; }
+
+/* revisión humana de reincidencias */
+.pill.warn { background: #fff4ce; color: #7a5a00; }
+.revpage { display: grid; gap: 14px; }
+.revprog { display: flex; align-items: center; gap: 10px; font-size: 13px; flex-wrap: wrap; }
+.revprog .bar { flex: 0 1 260px; height: 8px; background: var(--lav); border-radius: 99px; overflow: hidden; }
+.revprog .bar span { display: block; height: 100%; background: var(--brand); }
+.revcase .rc-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.revcase .rc-h b { font-size: 15px; }
+.revcase td .bad { color: var(--bad); font-weight: 700; }
+.revcase td.tit { min-width: 320px; font-size: 12px; white-space: normal; text-align: left; }
+.revcase input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--brand); }
+.revcase .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.revcase .spacer { flex: 1; }
+.pill.tipo-ftth { background: #eef4fb; color: #1f4e79; }
+.pill.tipo-general { background: #fbeefe; color: #8a0aa8; }
+.sec-h { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.sec-h h2 { margin: 0 0 4px; font-size: 16px; }

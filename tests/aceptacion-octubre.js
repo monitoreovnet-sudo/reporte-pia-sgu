@@ -61,7 +61,7 @@ chk('SGU resueltos',J.map(f=>f.resueltos).join(','),'11,15,14,15,1,1,6,14');
 chk('SGU pend acum',J.map(f=>f.pendAcc).join(','),'11,14,17,20,23,28,31,41');
 chk('Gestión SGU',[G.sgu.gestion.abiertos,G.sgu.gestion.resueltos,G.sgu.gestion.cerrados].join('/'),'79/77/74');
 chk('Gestión país',[G.pais.gestion.abiertos,G.pais.gestion.resueltos,G.pais.gestion.cerrados].join('/'),'2973/3404/3370');
-chk('Rony no aparece',R.reincidencia.detalle.some(d=>/CHACON/.test(d.nombre)),false);
+chk('Rony va a revisión humana (cédulas y contratos distintos)',R.revision.pendientes.some(d=>/CHACON/.test(d.nombre)),true);
 // Reincidencia: la sección 9 incluía Cobranzas Masivas > FTTH; desde el 29/10 nunca cuenta, por eso esos valores ya no se comparan (se imprimen abajo).
 chk('PIA cambios de plan',G.pia.upgrades.cambiosPlan+'/'+G.pia.upgrades.bajas,'3/3');
 chk('SGU upgrade id',G.sgu.upgrades.glpi.join(','),'338 159');
