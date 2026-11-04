@@ -58,7 +58,7 @@
       s.addShape(pptx.ShapeType.line, { x: x + 0.16 + half + 0.0, y: y + 0.46, w: 0, h: h - 0.6, line: { color: C.cardLine, width: 1 } });
       [[a, va], [b, vb]].forEach(function (p, i) {
         var hx = x + 0.16 + i * (half + 0.0) + (i ? 0.14 : 0), hw = half - 0.14;
-        if (!(i === 1 && sinChipB)) chip(s, hx, y + 0.44, p[0]);
+        chip(s, hx, y + 0.44, p[0]); // el chip País ahora es liviano (borde y letra morados): se muestra siempre
         var v = [{ text: String(p[1].value), options: { bold: true, color: C.purple, fontSize: p[1].size || 18 } }];
         if (p[1].unit) v.push({ text: ' ' + p[1].unit, options: { bold: true, color: C.ink, fontSize: 8.5 } });
         txt(s, v, { x: hx, y: y + 0.68, w: hw, h: h - 0.68 - 0.44, valign: 'middle', fit: 'shrink' });
@@ -132,11 +132,11 @@
       ], { x: 0.72, y: 1.3, w: 12, h: 0.28, valign: 'middle' });
       var cw = 4.0, ch = 1.66, gx = 0.17, gy = 0.13, x0 = 0.45, y0 = 1.72;
       var X = function (c) { return x0 + c * (cw + gx); }, Y = function (r) { return y0 + r * (ch + gy); };
-      card(s, X(0), Y(0), cw, ch, { label: 'Índice de resolución PIA', chip: 'pia', value: pct(F.ir.pct), unit: miles(F.ir.num) + ' Casos', sub: miles(F.ir.fcr) + ' resueltos en 1er contacto + ' + miles(F.ir.escResueltos) + ' tickets escalados por PIA ya solucionados, de ' + miles(F.ir.den) + ' casos del PIA' });
+      card(s, X(0), Y(0), cw, ch, { label: 'Índice de resolución SGU', chip: 'sgu', value: pct(F.irSGU.pct), unit: miles(F.irSGU.num) + ' de ' + miles(F.irSGU.den), sub: miles(F.irSGU.fcr) + ' resueltos en 1er contacto · ' + miles(F.irSGU.escaladosPIA) + ' escalados por PIA · ' + miles(F.irSGU.creadosPIA) + ' creados por PIA' });
       card(s, X(1), Y(0), cw, ch, { label: 'Resolución en 1er contacto (FCR)', chip: 'pia', value: pct(F.fcr.pct), unit: miles(F.fcr.n) + ' Casos', sub: 'de los ' + miles(F.fcr.den) + ' casos únicos tipificados por el PIA' });
       card(s, X(2), Y(0), cw, ch, { label: 'Productividad del punto PIA', chip: 'pia', value: miles(F.productividad.casos) + ' Casos', size: 22, unit: miles(F.productividad.abonados) + ' abonados', sub: 'casos únicos tipificados por ' + R.cfg.sucursal + '; abonados = cédulas distintas' });
-      var sem = function (g) { var x = G[g].semana; return { value: pct(x.pct), sub: miles(x.cerradosMisma) + ' de ' + miles(x.abiertos) + ' abiertos (' + R.ventana.corta + ')' }; };
-      cardPar(s, X(0), Y(1), cw, ch, 'Cerrados en la misma semana que se abrieron', '', a, b, sem(a), sem(b), sinChipB);
+      var sem = function (g) { var x = G[g].semana; return { value: pct(x.pct), sub: miles(x.solucionados) + ' de ' + miles(x.abiertos) + ' abiertos · ' + miles(x.solMisma) + ' de la misma semana · ' + miles(x.solPrevias) + ' de semanas pasadas' }; };
+      cardPar(s, X(0), Y(1), cw, ch, 'Tickets solucionados en la semana', R.ventana.corta, 'sgu', 'pais', sem('sgu'), sem('pais'), false);
       card(s, X(1), Y(1), cw, ch, { label: 'Satisfacción / NPS', tag: 'Trimestral', value: F.nps || '—', sub: F.nps ? '' : 'sin medición en este corte' });
       var rei = function (g) { var x = G[g].reinc; return { value: miles(x.abonados), unit: 'Abonados', sub: miles(x.tickets) + ' tickets · ' + pct(x.pct) + ' de ' + miles(x.ftth) + ' seleccionados' }; };
       cardPar(s, X(2), Y(1), cw, ch, 'Reincidencia de fallas FTTH', '', a, b, rei(a), rei(b), sinChipB);
@@ -174,7 +174,7 @@
       var ra = res(a), rb = res(b);
       card(s, cx, y, cw, ch, { label: 'Resueltos', chip: a, value: ra.value, unit: ra.unit, sub: ra.sub, size: 20 });
       card(s, cx, y + (ch + gy), cw, ch, { label: 'Resueltos', chip: b, value: rb.value, unit: rb.unit, sub: rb.sub, size: 20 });
-      card(s, cx, y + 2 * (ch + gy), cw, ch, { label: 'Promedio', chip: a, value: fmtD(G[a].prom), size: 18, sub: G[a].moda === null ? 'sin moda' : 'Moda: ' + fmtD(G[a].moda) });
+      card(s, cx, y + 2 * (ch + gy), cw, ch, { label: 'Promedio', chip: a, value: fmtD(G[a].prom), size: 18, sub: G[a].moda ? 'Moda: ' + fmtD(G[a].moda) : 'sin moda' });
       var cmp = R.comparativos[a + '_' + b];
       card(s, cx, y + 3 * (ch + gy), cw, ch, { label: 'Promedio', chip: b, value: fmtD(G[b].prom), size: 18, sub: cmp && cmp.ganador ? 'Diferencia: ' + cmp.valor + ' a favor de ' + L[cmp.ganador] : '' });
     }
@@ -198,7 +198,7 @@
       });
     }
     function laminaCanal() {
-      var s = base('ATC · Canal de creación de casos SGU');
+      var s = base('ATC · Canal de creación de casos SGU - GLPI');
       var cw = 4.0, x0 = 0.45, gx = 0.17;
       card(s, x0, 1.45, cw, 1.4, { label: 'Creados por el PIA', chip: 'pia', value: pct(G.sgu.creados ? G.pia.creados / G.sgu.creados : null), unit: E.tickets(G.pia.creados), sub: 'de los ' + miles(G.sgu.creados) + ' tickets SGU, ' + miles(G.pia.creados) + ' fueron creados en PIA' });
       card(s, x0 + cw + gx, 1.45, cw, 1.4, { label: 'Creados en otros canales', chip: 'otras', value: pct(G.sgu.creados ? G.otras.creados / G.sgu.creados : null), unit: E.tickets(G.otras.creados), sub: 'de los ' + miles(G.sgu.creados) + ' tickets SGU en GLPI' });
@@ -351,14 +351,14 @@
     /* ---------- 15-16. Resueltos el mismo día ---------- */
     function laminaMismoDia(a, b, titulo) {
       var s = base(titulo);
-      var cols = ['Abiertos', 'Pendientes', 'Resueltos mismo día', '% en jornada'];
-      var head1 = [{ text: 'Día', o: { rowspan: 2 } }, { text: 'Fecha', o: { rowspan: 2 } }, { text: R.etiquetasLargas[a], o: { colspan: 4 } }, { text: R.etiquetasLargas[b], o: { colspan: 4 } }];
+      var cols = ['Abiertos', 'Pendientes', 'Resueltos mismo día', 'Resueltos de esa semana', '% en jornada'];
+      var head1 = [{ text: 'Día', o: { rowspan: 2 } }, { text: 'Fecha', o: { rowspan: 2 } }, { text: R.etiquetasLargas[a], o: { colspan: 5 } }, { text: R.etiquetasLargas[b], o: { colspan: 5 } }];
       var head2 = cols.concat(cols).map(function (c) { return { text: c }; });
       var JA = G[a].jornada, JB = G[b].jornada;
-      var fila = function (f) { return [miles(f.abiertos), miles(f.pendientes), miles(f.mismoDia), pct(f.pct)]; };
+      var fila = function (f) { return [miles(f.abiertos), miles(f.pendientes), miles(f.mismoDia), miles(f.resSemana), pct(f.pct)]; };
       var rows = JA.filas.map(function (f, i) { return { cells: [f.dia, f.fecha.slice(0, 5)].concat(fila(f), fila(JB.filas[i])) }; });
       rows.push({ total: true, cells: ['Total semanal', ''].concat(fila(JA.total), fila(JB.total)) });
-      var yEnd = tabla(s, { title: 'Tickets abiertos y solucionados el mismo día', head1: head1, head2: head2, rows: rows, x: 0.4, y: 1.4, w: 8.75, colW: [0.95, 0.7].concat(new Array(8).fill(7.1 / 8)), rowH: 0.255, fontSize: 8 });
+      var yEnd = tabla(s, { title: 'Tickets abiertos y solucionados el mismo día', head1: head1, head2: head2, rows: rows, x: 0.4, y: 1.4, w: 8.75, colW: [0.95, 0.7].concat(new Array(10).fill(7.1 / 10)), rowH: 0.255, fontSize: 7.5 });
       var gr = function (g) { var x = G[g].gestion; return { cells: [L[g], miles(x.abiertos), miles(x.resueltos), miles(x.cerrados), pct(x.pct)] }; };
       var y2 = tabla(s, { title: 'Gestión en la última semana · ' + R.ventana.desde.slice(0, 5) + ' al ' + R.ventana.hasta.slice(0, 5), head1: [{ text: 'Grupo', o: { align: 'left' } }, { text: 'Abiertos' }, { text: 'Resueltos' }, { text: 'Cerrados' }, { text: '% en jornada' }], rows: [gr(a), gr(b)], x: 0.4, y: yEnd + 0.18, w: 8.75, colW: [2.75, 1.5, 1.5, 1.5, 1.5], rowH: 0.27, fontSize: 8.5 });
       var cx = 9.4, cw = 3.5, ch = 1.22, gy = 0.13, y = 1.4;
@@ -368,7 +368,7 @@
       card(s, cx, y + 2 * (ch + gy), cw, ch, { label: 'Día pico', chip: a, value: pico ? pico.dia + ' ' + pico.fechaCorta : '-', size: 16, sub: pico ? miles(pico.abiertos) + ' tickets abiertos · ' + pct(pico.pct) + ' resueltos ese día' : '' });
       var ma = JA.total.pct, mb = JB.total.pct;
       note(s, cx, y + 3 * (ch + gy), cw, Math.max(0.9, y2 - (y + 3 * (ch + gy))), L[a] + ' resolvió el mismo día el ' + pct(ma) + ' de lo que abrió en la semana; ' + L[b] + ', el ' + pct(mb) + '.');
-      foot(s, '% en jornada: tickets creados y resueltos el mismo día ÷ tickets creados ese día. Cerrados: con fecha de cierre dentro de la semana.');
+      foot(s, '% en jornada: tickets creados y resueltos el mismo día ÷ tickets creados ese día. Resueltos de esa semana: abiertos desde el inicio de la semana y solucionados ese día. Cerrados: con fecha de cierre dentro de la semana.');
     }
 
     /* ---------- desglose de "Otro" (solo el grupo SGU de la presentación) ---------- */

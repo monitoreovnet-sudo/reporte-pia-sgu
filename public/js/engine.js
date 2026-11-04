@@ -303,12 +303,14 @@
     if (best < 2) moda = null;
     return { n: lista.length, prom: sum / lista.length, moda: moda };
   }
+  /* Celda de tiempo: la moda (M) o el promedio (P). Nunca se muestra un "0 h": una moda o un promedio de 0 horas se omite. */
+  function esCero(x) { return x === null || x === undefined || Math.round(x) < 3600; }
   function celdaTiempo(mp, esTotal) {
     if (!mp || !mp.n) return '-';
-    if (esTotal) return mp.moda === null ? 'P: ' + fmtD(mp.prom) : 'M: ' + fmtD(mp.moda) + ' / P: ' + fmtD(mp.prom);
-    if (mp.moda === null) return 'P: ' + fmtD(mp.prom);
-    if (mp.moda === 0) return 'M: 0 h / P: ' + fmtD(mp.prom);
-    return 'M: ' + fmtD(mp.moda);
+    var M = mp.moda === null || mp.moda === 0 ? null : 'M: ' + fmtD(mp.moda);
+    var Pr = esCero(mp.prom) && Math.round(mp.prom) < 60 ? null : 'P: ' + fmtD(mp.prom);
+    if (esTotal) return [M, Pr].filter(Boolean).join(' / ') || '-';
+    return M || Pr || '-';
   }
 
   /* ================= cálculo principal ================= */
@@ -425,6 +427,10 @@
       estatus: estatusN, estatusTodas: estatusTodas,
       nps: cfg.nps || ''
     };
+    /* Índice de resolución SGU = (tickets SGU solucionados en GLPI + casos resueltos en 1er contacto) ÷ (tickets SGU creados + casos resueltos en 1er contacto) */
+    var sguL = porGrupo.sgu.lista, sguSol = porGrupo.sgu.solucionados, sguCre = porGrupo.sgu.creados;
+    fijos.irSGU = { num: sguSol + fcr, den: sguCre + fcr, pct: sguCre + fcr ? (sguSol + fcr) / (sguCre + fcr) : null, solucionados: sguSol, creados: sguCre, fcr: fcr,
+      escaladosPIA: escFilas.length, creadosPIA: porGrupo.pia.creados };
 
     /* --- ventana semanal --- */
     var dias = []; for (var d = wIni; d < wFin; d++) dias.push(d);
@@ -432,18 +438,22 @@
       var L = porGrupo[g].lista, P = porGrupo[g];
       var enV = L.filter(function (t) { return t.dAp >= wIni && t.dAp < wFin; });
       var cerradosMisma = enV.filter(function (t) { return t.dCie !== null && t.dCie >= wIni && t.dCie < wFin; }).length;
-      P.semana = { abiertos: enV.length, cerradosMisma: cerradosMisma, pct: enV.length ? cerradosMisma / enV.length : null };
+      /* % de tickets solucionados en la semana = solucionados en la semana ÷ abiertos en la semana;
+         desglose: de la misma semana (abiertos en la semana) y de semanas pasadas (abiertos antes) */
+      var solSem = L.filter(function (t) { return t.dSol !== null && t.dSol >= wIni && t.dSol < wFin; });
+      var solMisma = solSem.filter(function (t) { return t.dAp >= wIni; }).length;
+      P.semana = { abiertos: enV.length, cerradosMisma: cerradosMisma, solucionados: solSem.length, solMisma: solMisma, solPrevias: solSem.length - solMisma, pct: enV.length ? solSem.length / enV.length : null };
       var accR = 0, filas = dias.map(function (D) {
-        var ab = 0, mismo = 0, resD = 0, pendAcc = 0;
+        var ab = 0, mismo = 0, resD = 0, pendAcc = 0, resSem = 0;
         L.forEach(function (t) {
           if (t.dAp === D) { ab++; if (t.dSol === D) mismo++; }
-          if (t.dSol === D) resD++;
+          if (t.dSol === D) { resD++; if (t.dAp >= wIni && t.dAp <= D) resSem++; }
           if (t.dAp >= wIni && t.dAp <= D && !(t.dSol !== null && t.dSol <= D)) pendAcc++;
         });
         accR += resD;
-        return { serial: D, dia: dayName(D), fecha: fmtDate(D), fechaCorta: fmtDM(D), abiertos: ab, pendientes: ab - mismo, resueltos: resD, mismoDia: mismo, pendAcc: pendAcc, resAcc: accR, pct: ab ? mismo / ab : null };
+        return { serial: D, dia: dayName(D), fecha: fmtDate(D), fechaCorta: fmtDM(D), abiertos: ab, pendientes: ab - mismo, resueltos: resD, mismoDia: mismo, resSemana: resSem, pendAcc: pendAcc, resAcc: accR, pct: ab ? mismo / ab : null };
       });
-      var tot = filas.reduce(function (a, f) { a.abiertos += f.abiertos; a.pendientes += f.pendientes; a.resueltos += f.resueltos; a.mismoDia += f.mismoDia; return a; }, { abiertos: 0, pendientes: 0, resueltos: 0, mismoDia: 0 });
+      var tot = filas.reduce(function (a, f) { a.abiertos += f.abiertos; a.pendientes += f.pendientes; a.resueltos += f.resueltos; a.mismoDia += f.mismoDia; a.resSemana += f.resSemana; return a; }, { abiertos: 0, pendientes: 0, resueltos: 0, mismoDia: 0, resSemana: 0 });
       tot.pendAcc = filas[filas.length - 1].pendAcc; tot.resAcc = filas[filas.length - 1].resAcc; tot.pct = tot.abiertos ? tot.mismoDia / tot.abiertos : null;
       var pico = filas.reduce(function (a, f) { return f.abiertos > (a ? a.abiertos : -1) ? f : a; }, null);
       P.jornada = { filas: filas, total: tot, pico: pico };
@@ -747,7 +757,18 @@
           e.definicion = 'Casos únicos que la sucursal ' + cfg.sucursal + ' registró en el Tipificador en el período. Abonados = cédulas distintas atendidas.';
           e.filtros = [filtroSA, filtroPeriodoTip, filtroDup];
           e.pasos = ['Filas de ' + cfg.sucursal + ' en el período: ' + miles(tipSAbruto.length) + '.', 'Menos duplicados: ' + miles(tipDuplicados.length) + '.', 'Casos únicos (productividad): ' + miles(tipSA.length) + '.', 'Cédulas distintas entre esos casos (abonados): ' + miles(Object.keys(cedulas).length) + '.'];
-          e.registros = [regP('Casos contados', tipSA), regP('Duplicados excluidos', tipDuplicados.map(function (d) { return d.fila; }))];
+          e.registros = [regP('Casos contados', tipSA), regP('Duplicados excluidos', tipDuplicados.map(function (d) { return d.fila; })),
+            regP('Escalados sin número de ticket GLPI', escCruce.filter(function (c) { return !c.fila.ticket; }).map(function (c) { return c.fila; })),
+            regP('Escalados con número que no está en GLPI', escCruce.filter(function (c) { return c.fila.ticket && !c.ticket; }).map(function (c) { return c.fila; }))];
+          break;
+        case 'irSGU':
+          var IS = fijos.irSGU, solL = sguL.filter(function (t) { return t.res; });
+          e.titulo = 'Índice de resolución SGU'; e.valor = pct(IS.pct) + ' · ' + miles(IS.num) + ' de ' + miles(IS.den);
+          e.definicion = 'Todo lo que entró por SGU y se resolvió: tickets SGU solucionados en GLPI más los casos que el PIA resolvió en primer contacto (sin ticket), sobre los tickets SGU creados más esos mismos casos de primer contacto.';
+          e.filtros = [filtroPeriodoGLPI, 'SGU total: ' + DEF_G.sgu + '.', 'Solucionado: estado Resuelto o Cerrado.', filtroSA, filtroPeriodoTip, filtroDup];
+          e.pasos = ['Tickets SGU solucionados: ' + miles(IS.solucionados) + ' de ' + miles(IS.creados) + ' creados.', 'Resueltos en 1er contacto (Tipificador): ' + miles(IS.fcr) + '.', 'Resultado: (' + miles(IS.solucionados) + ' + ' + miles(IS.fcr) + ') ÷ (' + miles(IS.creados) + ' + ' + miles(IS.fcr) + ') = ' + pct(IS.pct) + '.',
+            'Para referencia: el PIA escaló ' + miles(IS.escaladosPIA) + ' casos (Tipificador) y creó ' + miles(IS.creadosPIA) + ' tickets SGU en GLPI.'];
+          e.registros = [regT('Tickets SGU solucionados', solL), regT('Tickets SGU creados', sguL), regP('Resueltos en 1er contacto', fcrFilas)];
           break;
         case 'fcr':
           e.titulo = 'Resolución en 1er contacto (FCR)'; e.valor = pct(fijos.fcr.pct) + ' · ' + miles(fcr) + ' casos';
@@ -787,12 +808,14 @@
           e.pasos = ['Promedio ' + ETIQUETAS[c.a] + ': ' + fmtD(A.prom) + ' (' + miles(A.n) + ' tickets).', 'Promedio ' + ETIQUETAS[c.b] + ': ' + fmtD(B.prom) + ' (' + miles(B.n) + ' tickets).', 'Diferencia: ' + c.valor + '.'];
           break;
         case 'semana':
-          var enV = L.filter(function (t) { return t.dAp >= wIni && t.dAp < wFin; }), cm = enV.filter(function (t) { return t.dCie !== null && t.dCie >= wIni && t.dCie < wFin; });
-          e.titulo = 'Cerrados en la misma semana que se abrieron · ' + et; e.valor = pct(porGrupo[g].semana.pct) + ' · ' + cm.length + ' de ' + enV.length;
-          e.definicion = 'Tickets abiertos en la semana (los 8 días anteriores a la descarga) que también tienen "Fecha de cierre" dentro de esa semana.';
-          e.filtros = ['Semana: del ' + fmtDate(wIni) + ' al ' + fmtDate(wFin - 1) + ' (00:00 a 23:59).', et + ': ' + DEF_G[g] + '.'];
-          e.pasos = ['Abiertos en la semana: ' + enV.length + '.', 'De ellos, cerrados dentro de la semana: ' + cm.length + '.', 'Resultado: ' + cm.length + ' ÷ ' + enV.length + ' = ' + pct(porGrupo[g].semana.pct) + '.'];
-          e.registros = [regT('Abiertos en la semana', enV), regT('Cerrados en la misma semana', cm)]; break;
+          var enV = L.filter(function (t) { return t.dAp >= wIni && t.dAp < wFin; });
+          var sS = L.filter(function (t) { return t.dSol !== null && t.dSol >= wIni && t.dSol < wFin; });
+          var sM = sS.filter(function (t) { return t.dAp >= wIni; }), sP = sS.filter(function (t) { return t.dAp < wIni; });
+          e.titulo = 'Tickets solucionados en la semana · ' + et; e.valor = pct(porGrupo[g].semana.pct) + ' · ' + sS.length + ' de ' + enV.length;
+          e.definicion = 'Tickets con "Fecha de solución" en la semana (estado Resuelto o Cerrado), sobre los tickets abiertos en la semana. Se separan los que se abrieron esa misma semana y los que venían de semanas pasadas (dentro del período del informe).';
+          e.filtros = ['Semana: del ' + fmtDate(wIni) + ' al ' + fmtDate(wFin - 1) + ' (00:00 a 23:59), los 8 días antes del corte.', et + ': ' + DEF_G[g] + '.', filtroPeriodoGLPI];
+          e.pasos = ['Abiertos en la semana: ' + enV.length + '.', 'Solucionados en la semana: ' + sS.length + ' (' + sM.length + ' de la misma semana + ' + sP.length + ' de semanas pasadas).', 'Resultado: ' + sS.length + ' ÷ ' + enV.length + ' = ' + pct(porGrupo[g].semana.pct) + ' (puede pasar de 100% si se resuelve trabajo de semanas pasadas).'];
+          e.registros = [regT('Abiertos en la semana', enV), regT('Solucionados en la semana, abiertos esa misma semana', sM), regT('Solucionados en la semana, de semanas pasadas', sP)]; break;
         case 'reinc':
           var RI = porGrupo[g].reinc;
           e.titulo = 'Reincidencia de fallas FTTH · ' + et; e.valor = RI.abonados + ' abonados · ' + RI.tickets + ' tickets';
@@ -857,7 +880,7 @@
           break;
         case 'jor':
           var J = porGrupo[g].jornada, dia = x.d >= 0 ? J.filas[x.d] : null, D = dia ? dia.serial : null;
-          var etiq = { abiertos: 'Abiertos', pendientes: 'Pendientes', resueltos: 'Resueltos', mismoDia: 'Resueltos el mismo día', pendAcc: 'Pendiente acumulado', resAcc: 'Resuelto acumulado', pct: '% en jornada' }[x.c];
+          var etiq = { abiertos: 'Abiertos', pendientes: 'Pendientes', resueltos: 'Resueltos', mismoDia: 'Resueltos el mismo día', resSemana: 'Resueltos de esa semana', pendAcc: 'Pendiente acumulado', resAcc: 'Resuelto acumulado', pct: '% en jornada' }[x.c];
           var desde = wIni, hasta = D === null ? wFin - 1 : D;
           var abiertosD = L.filter(function (t) { return D === null ? (t.dAp >= wIni && t.dAp < wFin) : t.dAp === D; });
           var mismo = abiertosD.filter(function (t) { return t.dSol === t.dAp; });
@@ -870,6 +893,7 @@
             pendientes: ['Abiertos ' + (dia ? 'ese día' : 'en la semana') + ' que no se resolvieron el mismo día de su apertura.', abiertosD.length - mismo.length, regT('Abiertos y no resueltos el mismo día', abiertosD.filter(function (t) { return t.dSol !== t.dAp; }))],
             resueltos: ['Tickets con Fecha de solución ' + (dia ? 'ese día' : 'en la semana') + ', sin importar cuándo se abrieron.', resD.length, regT('Resueltos', resD)],
             mismoDia: ['Abiertos y resueltos el mismo día.', mismo.length, regT('Resueltos el mismo día', mismo)],
+            resSemana: ['Tickets abiertos en la semana (desde el ' + fmtDate(wIni) + ') y solucionados ' + (dia ? 'ese día' : 'dentro de la semana') + '.', resD.filter(function (t) { return t.dAp >= wIni && t.dAp <= hasta; }).length, regT('Resueltos de esa semana', resD.filter(function (t) { return t.dAp >= wIni && t.dAp <= hasta; }))],
             pendAcc: ['Tickets abiertos desde el inicio de la semana hasta ' + fmtDate(hasta) + ' que seguían sin solución al cierre de ese día.', pendAcc.length, regT('Pendientes acumulados', pendAcc)],
             resAcc: ['Suma de "Resueltos" desde el inicio de la semana hasta ' + fmtDate(hasta) + '.', (dia || J.total).resAcc, regT('Resueltos acumulados', L.filter(function (t) { return t.dSol !== null && t.dSol >= wIni && t.dSol <= hasta; }))],
             pct: ['Resueltos el mismo día ÷ abiertos.', pct(abiertosD.length ? mismo.length / abiertosD.length : null), regT('Abiertos', abiertosD)]
@@ -929,6 +953,8 @@
       descargaArchivo: pad(dp.d) + '-' + pad(dp.mo) + '-' + dp.y + ' ' + pad(dp.h) + 'h' + pad(dp.mi),
       fuentesTxt: 'GLPI y Tipificador · descarga ' + fdt(DESC),
       rangoTxt: nomMeses,
+      /* tickets del período sin grupo técnico asignado (descarga desde la página Grupos técnicos) */
+      sinGrupo: (function () { var L0 = T.filter(function (t) { return !String(t.grpL || '').trim(); }); return { titulo: 'Tickets sin grupo técnico asignado', cols: ['Grupo'].concat(COLS_T), filas: L0.map(function (t) { return [t.pia ? 'PIA' : t.sgu ? 'SGU otras unidades' : 'País'].concat(filaT(t)); }) }; })(),
       seleccionTxt: seleccionTxt,
       ventana: { desde: fmtDate(wIni), hasta: fmtDate(wFin - 1), corta: partsFromSerial(wIni).d + '–' + fmtDM(wFin - 1) },
       etiquetas: ETIQUETAS, etiquetasLargas: ETIQUETAS_LARGAS,
@@ -948,7 +974,7 @@
 
   /** Valores compactos de un corte, para guardar en D1 y comparar meses. */
   function snapshot(R) {
-    var o = { corte: R.corteFecha, periodo: R.periodoTxt, ir: R.fijos.ir, fcr: R.fijos.fcr, prod: R.fijos.productividad, estatus: R.fijos.estatus, g: {}, revPend: R.revision ? R.revision.pendientes.length : 0 };
+    var o = { corte: R.corteFecha, periodo: R.periodoTxt, ir: R.fijos.ir, irs: R.fijos.irSGU, fcr: R.fijos.fcr, prod: R.fijos.productividad, estatus: R.fijos.estatus, g: {}, revPend: R.revision ? R.revision.pendientes.length : 0 };
     GRUPOS.forEach(function (k) {
       var x = R.g[k];
       o.g[k] = { creados: x.creados, solucionados: x.solucionados, prom: x.prom, moda: x.moda, semana: x.semana.pct, mismoDia: x.gestion.pct, reincAb: x.reinc.abonados, reincTk: x.reinc.tickets, reincGenAb: x.reincGen.abonados, reincGenTk: x.reincGen.tickets, upgrades: x.upgrades.n, sva: x.sva.n };
