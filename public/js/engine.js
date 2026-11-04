@@ -341,14 +341,22 @@
     cfg.grupos.forEach(function (g) { var k = grpKey(g); if (k && grpKeys.indexOf(k) < 0) { grpKeys.push(k); gruposU.push(grpLabel(g)); } });
     var reincFuera = (cfg.reincExcluir || []).map(function (c) { return norm(homologar(c)); });
     /* Reincidencia: solo categorías FTTH y nunca nada que diga "Cobranzas Masivas" */
-    var esReincidible = function (k) { return k.indexOf('ftth') >= 0 && stripAccents(k).indexOf('cobranzas masivas') < 0; };
+    var esReincidible = function (k) { return k.indexOf('ftth') >= 0 && stripAccents(k).indexOf('cobranzas masivas') < 0 && !esAjusteFactura(k); };
+    /* El ajuste de facturación nunca cuenta en la reincidencia FTTH (la general lleva todas las categorías) */
+    var esAjusteFactura = function (k) { return /ajuste[^>]*factura/.test(stripAccents(k)); };
     var controles = {};
 
     /* --- GLPI del período --- */
     var homologadas = [], fueraPeriodo = 0;
-    var T = [];
+    var T = [], REV = cfg.revisiones || {}, sinTitulo = [];
     glpiAll.forEach(function (raw, idx) {
       if (raw.apertura === null || !enMeses(raw.apertura) || raw.apertura >= fin + 1 || raw.apertura > DESC) { fueraPeriodo++; return; }
+      /* tickets sin título: se valida a mano (se agrega el título o se deja sin título) */
+      if (!String(raw.titulo || '').trim()) {
+        var dt = REV['t|' + raw.id];
+        if (dt) { if (dt.procede && dt.procede[0]) raw = Object.assign({}, raw, { titulo: String(dt.procede[0]) }); sinTitulo.push({ raw: raw, dec: dt }); }
+        else sinTitulo.push({ raw: raw, dec: null });
+      }
       var cat = homologar(raw.categoria);
       if (cat !== String(raw.categoria).trim()) homologadas.push({ id: raw.id, de: raw.categoria, a: cat });
       var sgu = norm(raw.titulo).indexOf(marker) >= 0;
@@ -452,9 +460,10 @@
        contratos distintos, o si en algún ticket no se identifica con seguridad la cédula (6 a 8 dígitos)
        o el contrato (1 a 6 dígitos). Mientras no se revise, no cuenta como reincidente.
        Las decisiones se guardan por ámbito: "sgu" (vale para PIA, otras unidades y SGU total) y "pais". */
-    var REV = cfg.revisiones || {};
     var cedOk = function (c) { return /^\d{6,8}$/.test(c || ''); };
     var ctaOk = function (c) { return /^\d{1,6}$/.test(c || ''); };
+    /* etiqueta para ordenar la revisión: Contrato diferente, Cédula diferente, Dato no identificado o Varios datos no coinciden */
+    function etiquetaDe(m) { return m.length > 1 ? 'Varios datos no coinciden' : ({ 'Cédulas distintas': 'Cédula diferente', 'Contratos distintos': 'Contrato diferente' })[m[0]] || 'Dato no identificado'; }
     function motivosRevision(ts) {
       var ceds = {}, ctas = {}, m = [];
       ts.forEach(function (t) { if (t.cedula) ceds[t.cedula] = 1; if (t.cuenta) ctas[t.cuenta] = 1; });
@@ -501,11 +510,11 @@
           if (!cubre && general && cubreDe(REV[ambito + '|' + k])) { dec = REV[ambito + '|' + k]; cubre = true; decClave = ambito + '|' + k; reutilizada = true; }
           if (!cubre) {
             var ant = dec && Array.isArray(dec.tickets) ? { tickets: dec.tickets, procede: dec.procede || [], por: dec.por || '', heredada: !!dec.heredada } : null;
-            pendientes.push({ clave: clave, tipo: general ? 'general' : 'ftth', nombre: String(ts[0].raw.cliente).trim().toUpperCase(), motivos: motivos, tickets: ts.map(tkInfo), anterior: ant }); estado[k] = { pend: true }; return;
+            pendientes.push({ clave: clave, etiqueta: etiquetaDe(motivos), tipo: general ? 'general' : 'ftth', nombre: String(ts[0].raw.cliente).trim().toUpperCase(), motivos: motivos, tickets: ts.map(tkInfo), anterior: ant }); estado[k] = { pend: true }; return;
           }
           var todos = ts;
           ts = ts.filter(function (t) { return (dec.procede || []).indexOf(t.id) >= 0; });
-          rev = { clave: decClave, reutilizada: reutilizada, tipo: general ? 'general' : 'ftth', heredada: !!dec.heredada, motivos: motivos, por: dec.por || '', fecha: dec.fecha || '', revisados: todos.map(tkInfo), procede: ts.map(function (t) { return t.id; }) };
+          rev = { etiqueta: etiquetaDe(motivos), clave: decClave, reutilizada: reutilizada, tipo: general ? 'general' : 'ftth', heredada: !!dec.heredada, motivos: motivos, por: dec.por || '', fecha: dec.fecha || '', revisados: todos.map(tkInfo), procede: ts.map(function (t) { return t.id; }) };
           revisados++;
           estado[k] = { rev: rev, procede: rev.procede };
           if (ts.length < 2) { descartados.push({ clave: clave, nombre: String(todos[0].raw.cliente).trim().toUpperCase(), revision: rev }); return; }
@@ -519,7 +528,9 @@
       var porCat = {};
       reinc.forEach(function (r) { r.tickets.forEach(function (t) { var c = catCorta(t.cat); porCat[c] = (porCat[c] || 0) + 1; }); });
       var sinNombre = ftth.filter(function (t) { return !claveCliente(t.raw.cliente); });
-      return { abonados: reinc.length, tickets: nt, ftth: ftth.length, pct: ftth.length ? nt / ftth.length : null, detalle: reinc, porCategoria: porCat, sinNombre: sinNombre, sinCuenta: sinNombre,
+      /* base = tickets seleccionados: los que podrían ser reincidentes (con "Nombre Cliente" identificable) */
+      var base = ftth.length - sinNombre.length;
+      return { abonados: reinc.length, tickets: nt, ftth: base, seleccionados: base, candidatos: ftth.length, pct: base ? nt / base : null, detalle: reinc, porCategoria: porCat, sinNombre: sinNombre, sinCuenta: sinNombre,
         pendientes: pendientes, descartados: descartados, revisados: revisados, estado: estado };
     }
     ['sgu', 'pais', 'pia', 'otras'].forEach(function (g) {
@@ -530,11 +541,17 @@
     });
     /* cola de revisión: FTTH en SGU total (cubre PIA y otras unidades) y País; general solo en SGU */
     var revisadosLista = [];
+    sinTitulo.forEach(function (x) {
+      var r0 = x.raw, info = { id: r0.id, cat: homologar(r0.categoria), estado: r0.estado, apertura: r0.apertura, cliente: r0.cliente || '', grupo: grpLabel(r0.grupo), solicitante: r0.solicitante || '' };
+      if (!x.dec) colaRevision.push({ clave: 't|' + r0.id, tipo: 'titulo', ambito: 'titulo', etiqueta: 'Sin título', nombre: 'Ticket ' + r0.id + ' sin título', motivos: ['Sin título'], ticket: info, tickets: [] });
+      else revisadosLista.push({ ambito: 'titulo', tipo: 'titulo', nombre: 'Ticket ' + r0.id + ' sin título', procede: !!(x.dec.procede && x.dec.procede[0]),
+        revision: { clave: 't|' + r0.id, tipo: 'titulo', etiqueta: 'Sin título', titulo: (x.dec.procede && x.dec.procede[0]) || '', heredada: !!x.dec.heredada, motivos: ['Sin título'], por: x.dec.por || '', fecha: x.dec.fecha || '', revisados: [], procede: [], ticket: info } });
+    });
     [['sgu', 'reinc'], ['pais', 'reinc'], ['sgu', 'reincGen']].forEach(function (x) {
       var RI = porGrupo[x[0]][x[1]];
       RI.pendientes.forEach(function (p) { p.ambito = x[0]; colaRevision.push(p); });
-      RI.detalle.forEach(function (d) { if (d.revision) revisadosLista.push({ ambito: x[0], tipo: d.revision.tipo, nombre: d.nombre, procede: true, revision: d.revision }); });
-      RI.descartados.forEach(function (d) { revisadosLista.push({ ambito: x[0], tipo: d.revision.tipo, nombre: d.nombre, procede: false, revision: d.revision }); });
+      RI.detalle.forEach(function (d) { if (d.revision) revisadosLista.push({ ambito: x[0], etiqueta: d.revision.etiqueta, tipo: d.revision.tipo, nombre: d.nombre, procede: true, revision: d.revision }); });
+      RI.descartados.forEach(function (d) { revisadosLista.push({ ambito: x[0], etiqueta: d.revision.etiqueta, tipo: d.revision.tipo, nombre: d.nombre, procede: false, revision: d.revision }); });
     });
 
     /* --- upgrades y SVA --- */
@@ -741,9 +758,9 @@
           break;
         case 'ir':
           e.titulo = 'Índice de resolución PIA'; e.valor = pct(fijos.ir.pct) + ' · ' + miles(irNum) + ' casos';
-          e.definicion = 'Casos que el PIA resolvió: los resueltos en 1er contacto más los escalados cuyo ticket ya tiene fecha de solución en GLPI, sobre la productividad del punto.';
+          e.definicion = 'Casos que el PIA resolvió: los resueltos en 1er contacto más los tickets escalados por PIA que ya tienen fecha de solución en GLPI, sobre la productividad del punto. Un ticket escalado por PIA es el que San Agustín anotó como escalado en el Tipificador; en GLPI pudo crearlo el PIA u otra persona. Por eso no coincide con los tickets creados por el PIA del canal de creación.';
           e.filtros = [filtroSA, filtroPeriodoTip, filtroDup, 'Escalados: casos con Estatus distinto de "' + cfg.fcrStatus + '". Se buscan en GLPI por la columna "Ticket GLPI" (en todo el archivo de GLPI, sin filtro de fecha).'];
-          e.pasos = ['Resueltos en 1er contacto: ' + miles(fcr) + '.', 'Escalados: ' + miles(escFilas.length) + ' (' + miles(fijos.ir.escSinTicket) + ' sin número de ticket, ' + miles(fijos.ir.escNoEncontrado) + ' con número que no está en GLPI).', 'Escalados con "Fecha de solución" en GLPI: ' + miles(escResueltos) + '.', 'Índice = (' + miles(fcr) + ' + ' + miles(escResueltos) + ') ÷ ' + miles(tipSA.length) + ' = ' + pct(fijos.ir.pct) + '.'];
+          e.pasos = ['Resueltos en 1er contacto: ' + miles(fcr) + '.', 'Tickets escalados por PIA: ' + miles(escFilas.length) + ' (' + miles(fijos.ir.escSinTicket) + ' sin número de ticket, ' + miles(fijos.ir.escNoEncontrado) + ' con número que no está en GLPI).', 'Tickets escalados por PIA ya solucionados (con "Fecha de solución" en GLPI): ' + miles(escResueltos) + '.', 'Índice = (' + miles(fcr) + ' + ' + miles(escResueltos) + ') ÷ ' + miles(tipSA.length) + ' = ' + pct(fijos.ir.pct) + '.'];
           e.registros = [regP('Resueltos en 1er contacto', fcrFilas), { titulo: 'Escalados y su ticket en GLPI', cols: COLS_P.concat(['Encontrado en GLPI', 'Estado GLPI', 'Fecha de solución', 'Cuenta como resuelto']), filas: escCruce.map(function (c) { return filaP(c.fila).concat([c.ticket ? 'Sí' : 'No', c.ticket ? c.ticket.estado : '', c.ticket ? fdt(c.ticket.solucion) : '', c.resuelto ? 'Sí' : 'No']); }) }];
           break;
         case 'nps':
@@ -782,7 +799,7 @@
           e.definicion = 'Clientes (columna "Nombre Cliente" de GLPI) con 2 o más tickets FTTH dentro del mismo grupo en el período. La cuenta que se muestra sale del título.';
           e.filtros = [filtroPeriodoGLPI, et + ': ' + DEF_G[g] + '.', 'Categoría contiene "FTTH" y no dice "Cobranzas Masivas" (esas nunca cuentan).', reincFuera.length ? 'No cuentan: ' + (cfg.reincExcluir || []).join('; ') + '.' : 'Cuentan todas las categorías FTTH.', 'Cliente repetido: mismo "Nombre Cliente" (sin distinguir mayúsculas, acentos ni signos). Tickets con el nombre vacío o con error ("#NAME?") no entran (' + RI.sinNombre.length + ').', 'Cuenta mostrada: el último número del título "... - NOMBRE - CÉDULA - CUENTA" (si la cédula trae sufijo, p. ej. 18524490-001, el sufijo no es la cuenta); si el título no la trae, se toma de la descripción.'];
           e.filtros.push((g === 'pia' || g === 'otras') ? 'Revisión humana: se usa la de SGU total (lo decidido en SGU vale para este grupo; los clientes pendientes en SGU no cuentan).' : 'Revisión humana: si un cliente tiene cédulas distintas, contratos distintos, o la cédula (6 a 8 dígitos) o el contrato (1 a 6 dígitos) no se identifican con seguridad, un operador decide qué tickets proceden. Revisados en este grupo: ' + RI.revisados + ' (' + RI.descartados.length + ' descartados); pendientes: ' + RI.pendientes.length + ' (no cuentan hasta revisarse).');
-          e.pasos = ['Tickets FTTH que cuentan: ' + RI.ftth + '.', 'Clientes con 2 o más tickets (después de la revisión): ' + RI.abonados + ', que suman ' + RI.tickets + ' tickets.', 'Porcentaje: ' + RI.tickets + ' ÷ ' + RI.ftth + ' = ' + pct(RI.pct) + '.'];
+          e.pasos = ['Tickets seleccionados: ' + RI.candidatos + ' FTTH del grupo, menos ' + RI.sinNombre.length + ' sin "Nombre Cliente" identificable = ' + RI.ftth + '.', 'Clientes con 2 o más tickets (después de la revisión): ' + RI.abonados + ', que suman ' + RI.tickets + ' tickets.', 'Porcentaje: ' + RI.tickets + ' ÷ ' + RI.ftth + ' = ' + pct(RI.pct) + '.'];
           e.registros = [{ titulo: 'Clientes reincidentes', cols: ['Nombre Cliente', 'Cédula (título)', 'Cuenta (título)', 'Ticket', 'Categoría', 'Estado', 'Revisión'], filas: RI.detalle.reduce(function (a, d) { return a.concat(d.tickets.map(function (t) { return [d.nombre, t.cedula, t.cuenta, t.id, t.cat, t.estado, d.revision ? 'Procede (' + d.revision.por + ')' : 'No requirió']; })); }, []) }].concat(RI.descartados.length ? [{ titulo: 'Descartados en la revisión', cols: ['Nombre Cliente', 'Tickets', 'Revisado por'], filas: RI.descartados.map(function (d) { return [d.nombre, d.revision.revisados.map(function (t) { return t.id; }).join(', '), d.revision.por]; }) }] : []).concat(RI.sinNombre.length ? [{ titulo: 'Tickets sin "Nombre Cliente" (no entran)', cols: ['Ticket', 'Título', 'Nombre Cliente'], filas: RI.sinNombre.map(function (t) { return [t.id, t.raw.titulo, t.raw.cliente || '']; }) }] : []); break;
         case 'reincGen':
           var RG = porGrupo[g].reincGen;
@@ -790,7 +807,7 @@
           e.definicion = 'Clientes (columna "Nombre Cliente" de GLPI) con 2 o más tickets de cualquier categoría, sin excepción, dentro del mismo grupo en el período.';
           e.filtros = [filtroPeriodoGLPI, et + ': ' + DEF_G[g] + '.', 'Todas las categorías, sin excepción (incluye facturación, reembolso, cambio de plan y Cobranzas Masivas).', 'Cliente repetido: mismo "Nombre Cliente" (sin distinguir mayúsculas, acentos ni signos). Tickets con el nombre vacío o con error no entran (' + RG.sinNombre.length + ').',
             g === 'pais' ? 'País: sin revisión humana (todos los clientes repetidos cuentan).' : (g === 'pia' || g === 'otras') ? 'Revisión humana: se usa la de SGU total.' : 'Revisión humana (solo SGU): cédulas distintas, contratos distintos, o cédula/contrato sin identificar con seguridad. Revisados: ' + RG.revisados + ' (' + RG.descartados.length + ' descartados); pendientes: ' + RG.pendientes.length + '. Si la revisión de fallas FTTH ya decidió sobre los mismos tickets, se usa esa decisión.'];
-          e.pasos = ['Tickets del grupo: ' + RG.ftth + '.', 'Clientes con 2 o más tickets' + (g === 'pais' ? '' : ' (después de la revisión)') + ': ' + RG.abonados + ', que suman ' + RG.tickets + ' tickets.', 'Porcentaje: ' + RG.tickets + ' ÷ ' + RG.ftth + ' = ' + pct(RG.pct) + '.'];
+          e.pasos = ['Tickets seleccionados: ' + RG.candidatos + ' tickets del grupo, menos ' + RG.sinNombre.length + ' sin "Nombre Cliente" identificable = ' + RG.ftth + '.', 'Clientes con 2 o más tickets' + (g === 'pais' ? '' : ' (después de la revisión)') + ': ' + RG.abonados + ', que suman ' + RG.tickets + ' tickets.', 'Porcentaje: ' + RG.tickets + ' ÷ ' + RG.ftth + ' = ' + pct(RG.pct) + '.'];
           e.registros = [{ titulo: 'Clientes reincidentes (todas las categorías)', cols: ['Nombre Cliente', 'Cédula (título)', 'Cuenta (título)', 'Ticket', 'Categoría', 'Estado', 'Revisión'], filas: RG.detalle.reduce(function (a, d) { return a.concat(d.tickets.map(function (t) { return [d.nombre, t.cedula, t.cuenta, t.id, t.cat, t.estado, d.revision ? 'Procede (' + d.revision.por + ')' : 'No requirió']; })); }, []) }]; break;
         case 'upgrades': case 'sva':
           var U = porGrupo[g].upgrades, V = porGrupo[g].sva;
@@ -887,6 +904,11 @@
       };
     });
 
+    /* cómo se seleccionan los tickets que se evalúan como reincidentes (se muestra en el Excel) */
+    var seleccionTxt = {
+      ftth: 'Tickets seleccionados para la reincidencia de fallas FTTH: (1) abiertos ' + nomMeses + ', sin pasar de la descarga; (2) del grupo: SGU = título con "' + cfg.sguMarker + '" (PIA si además el solicitante es ' + cfg.piaSolicitante + '), País = sin esa marca; (3) la categoría dice "FTTH"; (4) no dice "Cobranzas Masivas" ni es un ajuste de facturación; (5) no está en la lista "Problemas de reincidencia" del Informe' + ((cfg.reincExcluir || []).length ? ' (hoy: ' + cfg.reincExcluir.join('; ') + ')' : '') + '; (6) tiene "Nombre Cliente" identificable (no vacío ni "#NAME?"). Entra cualquier estado (abierto o solucionado). Reincidente: el mismo "Nombre Cliente" con 2 o más tickets seleccionados en el grupo. Si sus tickets tienen cédulas o contratos distintos, o no se identifican con seguridad, pasa por revisión humana y no cuenta hasta decidirse. % = tickets reincidentes ÷ tickets seleccionados.',
+      general: 'Tickets seleccionados para la reincidencia general: abiertos en el período, del grupo, de cualquier categoría, sin excepción, y con "Nombre Cliente" identificable. Reincidente: el mismo cliente con 2 o más tickets. La revisión humana se hace solo en SGU. % = tickets reincidentes ÷ tickets seleccionados.'
+    };
     var per = (function () {
       var p = partsFromSerial(ini), q = partsFromSerial(ultimoDia), varios = p.y !== q.y;
       var nm = meses.map(function (m) { return MESES[+m.slice(5) - 1] + (varios ? ' ' + m.slice(0, 4) : ''); });
@@ -907,6 +929,7 @@
       descargaArchivo: pad(dp.d) + '-' + pad(dp.mo) + '-' + dp.y + ' ' + pad(dp.h) + 'h' + pad(dp.mi),
       fuentesTxt: 'GLPI y Tipificador · descarga ' + fdt(DESC),
       rangoTxt: nomMeses,
+      seleccionTxt: seleccionTxt,
       ventana: { desde: fmtDate(wIni), hasta: fmtDate(wFin - 1), corta: partsFromSerial(wIni).d + '–' + fmtDM(wFin - 1) },
       etiquetas: ETIQUETAS, etiquetasLargas: ETIQUETAS_LARGAS,
       fijos: fijos, g: resumenGrupos, comparativos: comparativos,

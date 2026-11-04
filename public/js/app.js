@@ -277,7 +277,7 @@
       cont.innerHTML = opcionesMeses(+m[1], +m[2]).reverse().map(function (k, i, a) { var on = prev.length ? prev.indexOf(k) >= 0 : i === a.length - 1; return '<label class="chk"><input type="checkbox" value="' + k + '"' + (on ? ' checked' : '') + '> ' + nombreMes(k) + '</label>'; }).join('');
       enlazarMeses(cont, document.getElementById('fI'), document.getElementById('fF'));
     }
-    document.getElementById('fC').addEventListener('change', function () { document.getElementById('fM').innerHTML = ''; pintarMeses(); });
+    document.getElementById('fC').addEventListener('change', function () { document.getElementById('fM').innerHTML = ''; document.getElementById('fI').value = ''; document.getElementById('fF').value = ''; pintarMeses(); });
     pintarMeses();
     [['dG', 'fG', 'g'], ['dT', 'fT', 't']].forEach(function (x) {
       var drop = document.getElementById(x[0]), inp = document.getElementById(x[1]);
@@ -382,7 +382,7 @@
       cbs.forEach(function (x, i) { x.checked = i >= a && i <= b; });
       fI.value = inputDeDia(iniDeMes(cbs[a].value)); fF.value = inputDeDia(finDeMes(cbs[b].value));
     }
-    cont.addEventListener('change', aplicar);
+    cont.onchange = aplicar;
     if (!fI.value || !fF.value) aplicar();
   }
   function mesDeCorte(x) { var p = E.partsFromSerial(x); return p.y + '-' + (p.mo < 10 ? '0' : '') + p.mo; }
@@ -408,7 +408,7 @@
   var GCOL = { pia: '#CC04FF', otras: '#440099', sgu: '#440099', pais: '#241338' };
   var GS = ['pia', 'otras', 'sgu', 'pais'];
 
-  function chipH(g) { return '<span class="gchip" style="background:' + GCOL[g] + '">' + esc(S.R.etiquetas[g]) + '</span>'; }
+  function chipH(g) { return g === 'pais' ? '<span class="gchip pais">' + esc(S.R.etiquetas[g]) + '</span>' : '<span class="gchip" style="background:' + GCOL[g] + '">' + esc(S.R.etiquetas[g]) + '</span>'; }
   function tile(cls, title, sub, body) { return '<div class="viz ' + cls + '"><h3>' + esc(title) + (sub ? '<small>' + esc(sub) + '</small>' : '') + '</h3>' + body + '</div>'; }
   function xa(x) { return x ? ' data-x="' + esc(JSON.stringify(x)) + '" tabindex="0"' : ''; }
   function kcard(title, tag, v, extra, note, chipG, x) {
@@ -441,12 +441,12 @@
     if (i === 0) {
       var a = CMPS[cmpIdx][0], b = CMPS[cmpIdx][1], cmp = R.comparativos[CMPS[cmpIdx][2]];
       body = (S.pdfMode ? '' : '<div class="c12 seg" role="group" aria-label="Comparación">' + CMPS.map(function (c, k) { return '<button type="button" data-cmp="' + k + '" aria-pressed="' + (k === cmpIdx) + '">' + c[3] + '</button>'; }).join('') + '</div>') +
-        kcard('Índice de resolución PIA', '', pct(F.ir.pct), num(F.ir.num) + ' casos', num(F.ir.fcr) + ' resueltos en 1er contacto + ' + num(F.ir.escResueltos) + ' escalados con solución en GLPI, de ' + num(F.ir.den) + ' casos del PIA', 'pia', { k: 'ir' }) +
+        kcard('Índice de resolución PIA', '', pct(F.ir.pct), num(F.ir.num) + ' casos', num(F.ir.fcr) + ' resueltos en 1er contacto + ' + num(F.ir.escResueltos) + ' tickets escalados por PIA ya solucionados en GLPI, de ' + num(F.ir.den) + ' casos del PIA', 'pia', { k: 'ir' }) +
         kcard('Resolución en 1er contacto (FCR)', '', pct(F.fcr.pct), num(F.fcr.n) + ' casos', 'de los ' + num(F.fcr.den) + ' casos únicos tipificados por el PIA', 'pia', { k: 'fcr' }) +
         kcard('Productividad del punto PIA', '', num(F.productividad.casos) + ' casos', num(F.productividad.abonados) + ' abonados', 'casos únicos tipificados por ' + R.cfg.sucursal + (F.productividad.duplicados ? ' (' + num(F.productividad.duplicados) + ' duplicados excluidos)' : '') + '; abonados = cédulas distintas', 'pia', { k: 'prod' }) +
         kpar('Cerrados en la misma semana que se abrieron', '', a, b, function (g) { var x = G[g].semana; return { v: pct(x.pct), n: num(x.cerradosMisma) + ' de ' + num(x.abiertos) + ' abiertos (' + R.ventana.corta + ')' }; }, 'semana') +
         kcard('Satisfacción / NPS', 'Trimestral', F.nps || '—', '', F.nps ? '' : 'sin medición en este corte (se carga en el Repositorio con Editar)', null, { k: 'nps' }) +
-        kpar('Reincidencia de fallas FTTH', '', a, b, function (g) { var x = G[g].reinc; return { v: num(x.abonados), u: 'abonados', n: num(x.tickets) + ' tickets · ' + pct(x.pct) + ' de ' + num(x.ftth) + ' FTTH' }; }, 'reinc') +
+        kpar('Reincidencia de fallas FTTH', '', a, b, function (g) { var x = G[g].reinc; return { v: num(x.abonados), u: 'abonados', n: num(x.tickets) + ' tickets · ' + pct(x.pct) + ' de ' + num(x.ftth) + ' seleccionados' }; }, 'reinc') +
         '<div class="viz card c4 xable"' + xa({ k: 'cmp', id: CMPS[cmpIdx][2] }) + '><div class="t">Comparativo ' + esc(L[a]) + ' vs. ' + esc(L[b]) + '<i>Mensual</i></div><div class="v">' + esc(cmp.valor) + '</div>' + (cmp.ganador ? '<div class="n" style="color:var(--ink)">a favor de ' + chipH(cmp.ganador) + '</div>' : '') + '<div class="n">' + esc(cmp.detalle) + '</div></div>' +
         kpar('Upgrades y SVA', 'Mensual', a, b, upTxt, 'upgrades') +
         kpar('Tiempo promedio de resolución', '', a, b, function (g) { return { v: E.fmtD(G[g].prom), n: num(G[g].solucionados) + ' tickets resueltos' + (G[g].moda !== null ? ' · moda ' + E.fmtD(G[g].moda) : '') }; }, 'prom') +
@@ -477,7 +477,7 @@
         tile('c7', 'Clientes reincidentes FTTH', 'SGU total · por "Nombre Cliente" de GLPI (la cuenta sale del título) · no cuenta nada de Cobranzas Masivas' + (R.reincExcluidas.filter(function (c) { return !/cobranzas masivas/i.test(c); }).length ? ' ni ' + R.reincExcluidas.filter(function (c) { return !/cobranzas masivas/i.test(c); }).map(function (c) { return E.catCorta(c).toLowerCase(); }).join(', ') : ''), table('<th>Cliente</th><th>Cuenta</th><th>Categorías</th><th>Tickets</th>', '', RI.detalle.length ? RI.detalle.map(function (d) { return { cells: [d.nombre, d.cuenta, d.categorias.join('\n'), d.tickets.map(function (t) { return t.id + (t.pia ? ' (PIA)' : ''); }).join('\n')] }; }) : [{ cells: ['Sin reincidencias', '', '', ''] }]));
       var RG = R.reincidenciaGeneral, rgc = Object.keys(RG.porCategoria).sort(function (x, y) { return RG.porCategoria[y] - RG.porCategoria[x]; }).slice(0, 15);
       body += '<div class="c12 sec-h"><h2>Reincidencia general · todas las categorías</h2><p class="hint">Mismo cliente ("Nombre Cliente" de GLPI) con 2 o más tickets de cualquier categoría, sin excepción. La revisión humana se hace solo en SGU; el país cuenta sin revisión.</p></div>' +
-        GS.map(function (g) { var x = G[g].reincGen; return '<div class="viz card c3 xable"' + xa({ k: 'reincGen', g: g }) + '><div class="t">Reincidencia general ' + chipH(g) + '</div><div class="v">' + num(x.abonados) + '<small>clientes</small></div><div class="n">' + num(x.tickets) + ' tickets · ' + pct(x.pct) + ' de ' + num(x.ftth) + ' tickets</div></div>'; }).join('') +
+        GS.map(function (g) { var x = G[g].reincGen; return '<div class="viz card c3 xable"' + xa({ k: 'reincGen', g: g }) + '><div class="t">Reincidencia general ' + chipH(g) + '</div><div class="v">' + num(x.abonados) + '<small>clientes</small></div><div class="n">' + num(x.tickets) + ' tickets · ' + pct(x.pct) + ' de ' + num(x.ftth) + ' seleccionados</div></div>'; }).join('') +
         tile('c5', 'Categorías de los tickets reincidentes', 'SGU total · todas las categorías' + (Object.keys(RG.porCategoria).length > 15 ? ' · las 15 con más tickets' : ''), rgc.length ? C.hbars({ title: 'Reincidencia general por categoría', labels: rgc, labelW: 170, series: [{ name: 'Tickets', color: COLORS.brand, values: rgc.map(function (k) { return RG.porCategoria[k]; }) }], fmt: num }) : '<p class="hint">Sin reincidencias.</p>') +
         tile('c7', 'Clientes reincidentes · todas las categorías', 'SGU total · por "Nombre Cliente" de GLPI', table('<th>Cliente</th><th>Cuenta</th><th>Categorías</th><th>Tickets</th>', '', RG.detalle.length ? RG.detalle.map(function (d) { return { cells: [d.nombre, d.cuenta, d.categorias.join('\n'), d.tickets.map(function (t) { return t.id + (t.pia ? ' (PIA)' : ''); }).join('\n')] }; }) : [{ cells: ['Sin reincidencias', '', '', ''] }]));
     } else if (i === 5 || i === 6) {
@@ -561,7 +561,34 @@
   /* ================= revisión humana de reincidencias ================= */
   var AMBITO = { sgu: 'SGU', pais: 'País' };
   var TIPO_R = { ftth: 'Fallas FTTH', general: 'Todas las categorías' };
-  function chipsCaso(ambito, tipo) { return '<span class="pill">' + AMBITO[ambito] + '</span><span class="pill tipo-' + (tipo || 'ftth') + '">' + TIPO_R[tipo || 'ftth'] + '</span>'; }
+  function chipsCaso(ambito, tipo, etiqueta) { if (tipo === 'titulo') return '<span class="pill etq">Sin título</span>'; return '<span class="pill amb-' + ambito + '">' + AMBITO[ambito] + '</span>' + (etiqueta ? '<span class="pill etq">' + esc(etiqueta) + '</span>' : '') + '<span class="pill tipo-' + (tipo || 'ftth') + '">' + TIPO_R[tipo || 'ftth'] + '</span>'; }
+  /* etiquetas para agrupar la revisión */
+  var ETQS = ['Sin título', 'Contrato diferente', 'Cédula diferente', 'Dato no identificado', 'Varios datos no coinciden'];
+  function ordenCaso(a, b) { var oa = { titulo: 0, sgu: 1, pais: 2 }[a.ambito], ob = { titulo: 0, sgu: 1, pais: 2 }[b.ambito]; return oa - ob || ETQS.indexOf(a.etiqueta || (a.revision && a.revision.etiqueta)) - ETQS.indexOf(b.etiqueta || (b.revision && b.revision.etiqueta)); }
+  function filtroRev(lista) {
+    var f = S.revFiltro || { amb: 'todos', etq: 'todas' };
+    return lista.filter(function (x) { var e = x.etiqueta || (x.revision && x.revision.etiqueta); return (f.amb === 'todos' || x.ambito === f.amb) && (f.etq === 'todas' || e === f.etq); }).sort(ordenCaso);
+  }
+  function filtrosRevHtml(lista) {
+    var f = S.revFiltro || { amb: 'todos', etq: 'todas' };
+    var cuenta = function (pred) { return lista.filter(pred).length; };
+    var et = function (x) { return x.etiqueta || (x.revision && x.revision.etiqueta); };
+    var b1 = [['todos', 'Todos'], ['sgu', 'SGU'], ['pais', 'País']].concat(cuenta(function (x) { return x.ambito === 'titulo'; }) ? [['titulo', 'Sin título']] : []).map(function (o) {
+      var n = o[0] === 'todos' ? lista.length : cuenta(function (x) { return x.ambito === o[0]; });
+      return '<button type="button" data-fa="' + o[0] + '" aria-pressed="' + (f.amb === o[0]) + '">' + o[1] + ' (' + num(n) + ')</button>'; }).join('');
+    var b2 = ['todas'].concat(ETQS.slice(1)).map(function (e) {
+      var n = cuenta(function (x) { return (f.amb === 'todos' || x.ambito === f.amb) && (e === 'todas' || et(x) === e); });
+      return '<button type="button" data-fe="' + esc(e) + '" aria-pressed="' + (f.etq === e) + '"' + (n || e === 'todas' ? '' : ' disabled') + '>' + (e === 'todas' ? 'Todas' : esc(e)) + ' (' + num(n) + ')</button>'; }).join('');
+    return '<div class="revfil"><span class="lbl">Ámbito</span><div class="seg" role="group" aria-label="Ámbito">' + b1 + '</div><span class="lbl">Etiqueta</span><div class="seg" role="group" aria-label="Etiqueta">' + b2 + '</div></div>';
+  }
+  function casoTitulo(p, revisado) {
+    var t = p.ticket || (p.revision && p.revision.ticket), r = p.revision;
+    return '<section class="panel revcase" data-clave="' + esc(revisado ? r.clave : p.clave) + '" data-tipo="titulo"><div class="rc-h"><b>' + esc(p.nombre) + '</b>' + chipsCaso('titulo', 'titulo') +
+      (revisado ? (r.titulo ? '<span class="pill on">Título agregado</span>' : '<span class="pill off">Sigue sin título</span>') + '<span class="hint">' + (r.heredada ? 'Decisión del corte anterior · ' : '') + 'Por ' + esc(r.por || '-') + (r.fecha ? ' · ' + fechaHora(r.fecha) : '') + '</span>' : '') + '</div>' +
+      '<p class="hint">Sin título no se puede saber si es SGU ni leer la cédula y el contrato. ' + esc(t.cat) + ' · ' + esc(t.estado) + ' · abierto ' + esc(corteTxt(t.apertura)) + ' · solicitante ' + esc(t.solicitante || '-') + ' · cliente ' + esc(t.cliente || '(vacío)') + '</p>' +
+      (revisado ? (r.titulo ? '<p><b>Título:</b> ' + esc(r.titulo) + '</p>' : '') + '<div class="row"><span class="spacer"></span><button class="btn" data-act="reabrir">Cambiar</button></div>'
+        : '<div class="row"><input class="input tit-in" maxlength="300" placeholder="Escriba el título tal como debería estar en GLPI (ej.: FTTH - CCS - SGU - SIN CONEXION - NOMBRE - CÉDULA - CUENTA)" aria-label="Título del ticket ' + esc(t.id) + '"><button class="btn primary" data-act="titulo">Guardar título</button><button class="btn" data-act="sintitulo">Seguir sin título</button></div>') + '</section>';
+  }
   function revPend(R) { return R && R.revision ? R.revision.pendientes.length : 0; }
   function celdaDato(v, ok, tipo) { return ok ? esc(v) : '<span class="bad">' + (v ? esc(v) + ' · revisar' : 'No identificad' + (tipo === 'c' ? 'a' : 'o')) + '</span>'; }
   function tablaRev(tks, sel, procede, previos) {
@@ -577,26 +604,29 @@
   function paginaRevision(R) {
     var P = R.revision.pendientes, V = R.revision.revisados, tot = R.revision.total, hechos = V.length;
     var vista = S.revVista === 'revisados' && V.length ? 'revisados' : (P.length ? 'pendientes' : 'revisados');
+    var lista = vista === 'pendientes' ? P : V, vis = filtroRev(lista);
     var head = '<div class="page-h"><div><h1>Revisión de reincidencias</h1><p>' + (P.length
-      ? 'Antes de armar el informe, revise los clientes reincidentes con <b>cédulas distintas</b>, <b>contratos distintos</b> o con la <b>cédula o el contrato sin identificar</b> con seguridad (cédula de 6 a 8 dígitos, contrato de 1 a 6). Decida si la reincidencia procede. La reincidencia de <b>todas las categorías</b> solo se revisa en SGU. Las decisiones quedan guardadas para todos los usuarios, y al subir un corte nuevo se toman las del corte anterior.'
+      ? 'Antes de armar el informe, agregue el título de los tickets que no lo tienen y revise los clientes reincidentes con <b>cédulas distintas</b>, <b>contratos distintos</b> o con la <b>cédula o el contrato sin identificar</b> con seguridad (cédula de 6 a 8 dígitos, contrato de 1 a 6). Decida si la reincidencia procede. La reincidencia de <b>todas las categorías</b> solo se revisa en SGU. Las decisiones quedan guardadas para todos los usuarios, y al subir un corte nuevo se toman las del corte anterior.'
       : 'Todos los casos están revisados. Puede cambiar una decisión; el informe se recalcula solo.') + '</p></div>' +
       '<div class="row">' + (P.length ? '' : '<button class="btn primary" id="revVolver">Ver el informe</button>') + '<button class="btn" id="revAct">Actualizar</button></div></div>';
     var prog = '<div class="revprog"><div class="bar"><span style="width:' + (tot ? Math.round(hechos / tot * 100) : 100) + '%"></span></div><b>' + num(hechos) + ' de ' + num(tot) + '</b> casos revisados' + (P.length ? ' · faltan ' + num(P.length) : '') + '</div>' +
-      '<div class="seg" role="group" aria-label="Vista"><button type="button" data-rv="pendientes" aria-pressed="' + (vista === 'pendientes') + '"' + (P.length ? '' : ' disabled') + '>Pendientes (' + num(P.length) + ')</button><button type="button" data-rv="revisados" aria-pressed="' + (vista === 'revisados') + '"' + (V.length ? '' : ' disabled') + '>Revisados (' + num(V.length) + ')</button></div>';
+      '<div class="seg" role="group" aria-label="Vista"><button type="button" data-rv="pendientes" aria-pressed="' + (vista === 'pendientes') + '"' + (P.length ? '' : ' disabled') + '>Pendientes (' + num(P.length) + ')</button><button type="button" data-rv="revisados" aria-pressed="' + (vista === 'revisados') + '"' + (V.length ? '' : ' disabled') + '>Revisados (' + num(V.length) + ')</button></div>' + filtrosRevHtml(lista) + (vis.length ? '' : '<p class="hint">No hay casos con este filtro.</p>');
     var cuerpo;
     if (vista === 'pendientes') {
-      cuerpo = P.map(function (p) {
+      cuerpo = vis.map(function (p) {
+        if (p.tipo === 'titulo') return casoTitulo(p, false);
         var muchos = p.tickets.length > 2;
-        return '<section class="panel revcase" data-clave="' + esc(p.clave) + '" data-n="' + p.tickets.length + '"><div class="rc-h"><b>' + esc(p.nombre) + '</b>' + chipsCaso(p.ambito, p.tipo) + p.motivos.map(function (m) { return '<span class="pill warn">' + esc(m) + '</span>'; }).join('') + '<span class="hint">' + num(p.tickets.length) + ' tickets</span></div>' +
+        return '<section class="panel revcase" data-clave="' + esc(p.clave) + '" data-n="' + p.tickets.length + '"><div class="rc-h"><b>' + esc(p.nombre) + '</b>' + chipsCaso(p.ambito, p.tipo, p.etiqueta) + p.motivos.map(function (m) { return '<span class="pill warn">' + esc(m) + '</span>'; }).join('') + '<span class="hint">' + num(p.tickets.length) + ' tickets</span></div>' +
           (p.anterior ? '<p class="hint">' + (p.anterior.heredada ? 'En el corte anterior' : 'En una revisión anterior') + ' se revisaron ' + num(p.anterior.tickets.length) + ' tickets de este cliente: ' + (p.anterior.procede.length ? 'procedían ' + esc(p.anterior.procede.join(', ')) : 'se descartó la reincidencia') + '. Ahora tiene tickets nuevos.</p>' : '') +
           tablaRev(p.tickets, muchos, null, p.anterior && p.anterior.procede) +
           '<div class="row">' + (muchos ? '<span class="hint">Marque los tickets que proceden como reincidencia (al menos 2).</span><span class="spacer"></span><button class="btn primary" data-act="sel">Guardar selección</button>' : '<span class="spacer"></span><button class="btn primary" data-act="todos">Procede como reincidencia</button>') +
           '<button class="btn danger" data-act="descartar">Descartar como reincidencia</button></div></section>';
       }).join('');
     } else {
-      cuerpo = V.map(function (v) {
+      cuerpo = vis.map(function (v) {
+        if (v.tipo === 'titulo') return casoTitulo(v, true);
         var r = v.revision;
-        return '<section class="panel revcase" data-clave="' + esc(r.clave) + '"><div class="rc-h"><b>' + esc(v.nombre) + '</b>' + chipsCaso(v.ambito, v.tipo) + (v.procede ? '<span class="pill on">Procede: ' + num(r.procede.length) + ' tickets</span>' : '<span class="pill off">Descartado</span>') + r.motivos.map(function (m) { return '<span class="pill warn">' + esc(m) + '</span>'; }).join('') +
+        return '<section class="panel revcase" data-clave="' + esc(r.clave) + '"><div class="rc-h"><b>' + esc(v.nombre) + '</b>' + chipsCaso(v.ambito, v.tipo, r.etiqueta) + (v.procede ? '<span class="pill on">Procede: ' + num(r.procede.length) + ' tickets</span>' : '<span class="pill off">Descartado</span>') + r.motivos.map(function (m) { return '<span class="pill warn">' + esc(m) + '</span>'; }).join('') +
           '<span class="hint">' + (r.reutilizada ? 'Misma decisión que en Fallas FTTH (mismos tickets) · ' : '') + (r.heredada ? 'Decisión del corte anterior · ' : '') + 'Revisado por ' + esc(r.por || '-') + (r.fecha ? ' · ' + fechaHora(r.fecha) : '') + '</span></div>' + tablaRev(r.revisados, false, r.procede) +
           '<div class="row"><span class="spacer"></span><button class="btn" data-act="reabrir">Cambiar decisión</button></div></section>';
       }).join('');
@@ -609,7 +639,9 @@
     document.getElementById('revAct').addEventListener('click', function () {
       cargarRevisiones(S.activa.id).then(function (rv) { S.activa.rev = rv; calcular(); renderInforme(); toast('Revisión actualizada.'); });
     });
-    Array.prototype.forEach.call(pg.querySelectorAll('[data-rv]'), function (b) { b.addEventListener('click', function () { S.revVista = b.getAttribute('data-rv'); renderInforme(); }); });
+    Array.prototype.forEach.call(pg.querySelectorAll('[data-rv]'), function (b) { b.addEventListener('click', function () { S.revVista = b.getAttribute('data-rv'); S.revFiltro = { amb: 'todos', etq: 'todas' }; renderInforme(); }); });
+    Array.prototype.forEach.call(pg.querySelectorAll('[data-fa]'), function (b) { b.addEventListener('click', function () { S.revFiltro = { amb: b.getAttribute('data-fa'), etq: 'todas' }; renderInforme(); }); });
+    Array.prototype.forEach.call(pg.querySelectorAll('[data-fe]'), function (b) { b.addEventListener('click', function () { S.revFiltro = { amb: (S.revFiltro || {}).amb || 'todos', etq: b.getAttribute('data-fe') }; renderInforme(); }); });
     pg.addEventListener('click', function (ev) {
       var b = ev.target.closest('button[data-act]'); if (!b) return;
       var box = b.closest('.revcase'), clave = box.getAttribute('data-clave'), act = b.getAttribute('data-act');
@@ -617,6 +649,11 @@
       var y = window.scrollY, req;
       if (act === 'reabrir') {
         req = api('DELETE', 'cargas/' + S.activa.id + '/revisiones?clave=' + encodeURIComponent(clave)).then(function () { delete S.activa.rev[clave]; S.revVista = 'pendientes'; });
+      } else if (act === 'titulo' || act === 'sintitulo') {
+        if (!p) return;
+        var titulo = act === 'titulo' ? box.querySelector('.tit-in').value.trim() : '';
+        if (act === 'titulo' && titulo.length < 5) { toast('Escriba el título del ticket, o use "Seguir sin título".', true); return; }
+        req = api('PUT', 'cargas/' + S.activa.id + '/revisiones', { clave: clave, titulo: titulo }).then(function () { S.activa.rev[clave] = { tickets: [p.ticket.id], procede: [titulo], por: S.yo.email, fecha: new Date().toISOString() }; });
       } else {
         if (!p) return;
         var tks = p.tickets.map(function (t) { return t.id; }), pro;
@@ -638,7 +675,7 @@
   }
   function puertaRevision(where) {
     var n = revPend(S.R);
-    return '<div class="page"><div class="empty"><b>' + esc(where) + ' se arma después de la revisión de reincidencias.</b><span class="muted">Faltan ' + num(n) + ' caso' + (n === 1 ? '' : 's') + ' por revisar: clientes reincidentes con cédulas o contratos distintos, o sin identificar con seguridad.</span><a class="btn primary" href="#informe">Ir a la revisión</a></div></div>';
+    return '<div class="page"><div class="empty"><b>' + esc(where) + ' se arma después de la revisión de reincidencias.</b><span class="muted">Faltan ' + num(n) + ' caso' + (n === 1 ? '' : 's') + ' por revisar: tickets sin título y clientes reincidentes con cédulas o contratos distintos, o sin identificar con seguridad.</span><a class="btn primary" href="#informe">Ir a la revisión</a></div></div>';
   }
 
   function renderInforme() {
@@ -770,11 +807,13 @@
 
   function exportExcel() {
     var R = S.R, G = R.g, F = R.fijos, L = R.etiquetas, LL = R.etiquetasLargas, wb = XLSX.utils.book_new();
-    function add(name, aoa, widths) { var ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = (widths || []).map(function (w) { return { wch: w }; }); XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31)); }
+    function add(name, aoa, widths) { var ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = (widths || []).map(function (w) { return { wch: w }; }); XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31)); return ws; }
+    /* comentario (nota) en una celda: se ve al pasar el mouse */
+    function nota(ws, ref, txt) { if (!ws[ref]) ws[ref] = { t: 's', v: '' }; ws[ref].c = [{ a: 'Reporte PIA', t: txt }]; ws[ref].c.hidden = true; }
     var segs = GS.map(function (g) { return LL[g]; });
     var ind = [['Reporte PIA · SGU vs País'], ['Responsable', R.responsable || ''], ['Período', R.periodoLargo + ' · ' + R.rangoTxt], ['Fecha de corte', R.corteFecha], ['Descarga', R.descargaTxt], ['Fuentes', R.fuentesTxt], ['Semana', R.ventana.desde + ' al ' + R.ventana.hasta], [],
       ['Indicadores fijos (PIA)', 'Valor', 'Detalle'],
-      ['Índice de resolución PIA', F.ir.pct, '(' + F.ir.fcr + ' en 1er contacto + ' + F.ir.escResueltos + ' escalados con solución en GLPI) de ' + F.ir.den + ' casos'],
+      ['Índice de resolución PIA', F.ir.pct, '(' + F.ir.fcr + ' en 1er contacto + ' + F.ir.escResueltos + ' tickets escalados por PIA ya solucionados en GLPI) de ' + F.ir.den + ' casos'],
       ['Resolución en 1er contacto (FCR)', F.fcr.pct, F.fcr.n + ' de ' + F.fcr.den + ' casos tipificados'],
       ['Productividad del punto PIA', F.productividad.casos, F.productividad.abonados + ' abonados (cédulas distintas) · ' + F.productividad.duplicados + ' duplicados excluidos de ' + F.productividad.bruto + ' filas'],
       ['Consultas de estatus', F.estatus, 'Subcategoría "Estatus de un ticket de reporte" sin FCR'],
@@ -793,12 +832,13 @@
     fila('% resueltos el mismo día', function (g) { return G[g].gestion.pct; });
     fila('Reincidencia FTTH: abonados', function (g) { return G[g].reinc.abonados; });
     fila('Reincidencia FTTH: tickets', function (g) { return G[g].reinc.tickets; });
-    fila('Tickets FTTH', function (g) { return G[g].reinc.ftth; });
+    fila('Reincidencia FTTH: tickets seleccionados', function (g) { return G[g].reinc.ftth; });
     fila('Upgrades', function (g) { return G[g].upgrades.n; });
     fila('SVA', function (g) { return G[g].sva.n; });
     ind.push([], ['Comparativo', 'Diferencia', 'A favor de', 'Detalle']);
     Object.keys(R.comparativos).forEach(function (k) { var c = R.comparativos[k]; ind.push([L[c.a] + ' vs. ' + L[c.b], c.valor, c.ganador ? L[c.ganador] : '', c.detalle]); });
-    add('Indicadores', ind, [40, 22, 22, 22, 22]);
+    var wsI = add('Indicadores', ind, [40, 22, 22, 22, 22]);
+    ind.forEach(function (r, i) { if (r[0] === 'Reincidencia FTTH: tickets seleccionados') nota(wsI, 'A' + (i + 1), R.seleccionTxt.ftth); });
     function tiempoSheet(name, first, list) {
       var aoa = [[first].concat(GS.reduce(function (a, g) { return a.concat([LL[g] + ' · resueltos', LL[g] + ' · moda o promedio', LL[g] + ' · promedio', LL[g] + ' · moda']); }, []))];
       list.forEach(function (r) { aoa.push([r.label].concat(GS.reduce(function (a, g) { return a.concat([r[g].n, r[g].texto, r[g].n ? E.fmtD(r[g].prom) : '-', r[g].moda === null || r[g].moda === undefined ? '-' : E.fmtD(r[g].moda)]); }, []))); });
@@ -820,14 +860,18 @@
     var tr2 = ['Total semanal', '']; GS.forEach(function (g) { var t = G[g].jornada.total; tr2.push(t.abiertos, t.pendientes, t.mismoDia, t.pct); }); md.push(tr2);
     add('5.5 Mismo día', md, [12, 12]);
     add('5.6 Gestión semanal', [['Grupo', 'Abiertos', 'Resueltos', 'Cerrados', 'Resueltos mismo día', '% jornada']].concat(GS.map(function (g) { var x = G[g].gestion; return [L[g], x.abiertos, x.resueltos, x.cerrados, x.mismoDia, x.pct]; })), [22, 12, 12, 12, 18, 12]);
-    var ra = [['Nombre Cliente', 'Cuenta (título)', 'Categorías', 'Ticket', 'Categoría del ticket', 'Estado', 'Creado por el PIA', 'Tickets del cliente']];
+    var ra = [['Cómo se seleccionan los tickets', R.seleccionTxt.ftth], [], ['Grupo', 'Abonados reincidentes', 'Tickets reincidentes', 'Tickets seleccionados', '%', 'Sin "Nombre Cliente" (fuera)', 'Pendientes de revisión']];
+    GS.forEach(function (g) { var x = G[g].reinc; ra.push([L[g], x.abonados, x.tickets, x.ftth, x.pct === null ? '' : Math.round(x.pct * 1000) / 10 + '%', x.sinNombre.length, (g === 'pia' || g === 'otras') ? 'ver SGU' : x.pendientes.length]); });
+    ra.push([], ['Detalle SGU total'], ['Nombre Cliente', 'Cuenta (título)', 'Categorías', 'Ticket', 'Categoría del ticket', 'Estado', 'Creado por el PIA', 'Tickets del cliente']);
     R.reincidencia.detalle.forEach(function (d) { d.tickets.forEach(function (t) { ra.push([d.nombre, t.cuenta, d.categorias.join(' · '), t.id, t.cat, t.estado, t.pia ? 'Sí' : 'No', d.tickets.length]); }); });
-    add('5.7 Reincidencias', ra, [38, 10, 40, 12, 40, 14, 10, 10]);
-    var rg = [['Grupo', 'Clientes', 'Tickets', 'Tickets del grupo', '%']];
+    var wsR = add('5.7 Reincidencias', ra, [38, 22, 40, 22, 40, 26, 22, 18]);
+    nota(wsR, 'A1', R.seleccionTxt.ftth); nota(wsR, 'D3', R.seleccionTxt.ftth);
+    var rg = [['Cómo se seleccionan los tickets', R.seleccionTxt.general], [], ['Grupo', 'Clientes', 'Tickets', 'Tickets seleccionados', '%']];
     GS.forEach(function (g) { var x = G[g].reincGen; rg.push([L[g], x.abonados, x.tickets, x.ftth, x.pct === null ? '' : Math.round(x.pct * 1000) / 10 + '%']); });
     rg.push([]); rg.push(['Nombre Cliente', 'Cuenta (título)', 'Categorías', 'Ticket', 'Categoría del ticket', 'Estado', 'Creado por el PIA', 'Tickets del cliente']);
     R.reincidenciaGeneral.detalle.forEach(function (d) { d.tickets.forEach(function (t) { rg.push([d.nombre, t.cuenta, d.categorias.join(' · '), t.id, t.cat, t.estado, t.pia ? 'Sí' : 'No', d.tickets.length]); }); });
-    add('Reincidencia general', rg, [38, 12, 40, 14, 40, 14, 10, 10]);
+    var wsG = add('Reincidencia general', rg, [38, 12, 40, 22, 40, 14, 10, 10]);
+    nota(wsG, 'A1', R.seleccionTxt.general); nota(wsG, 'D3', R.seleccionTxt.general);
     var up = [['Grupo', 'Upgrades', 'Tickets GLPI con aumento', 'Aumentos en Tipificador', 'Repetidos', 'SVA', 'SVA en GLPI', 'SVA en Tipificador', 'Cambios de plan GLPI', 'A plan menor o revertidos']];
     GS.forEach(function (g) { var u = G[g].upgrades, v = G[g].sva; up.push([L[g], u.n, u.glpi.join(', '), u.tip, u.repetidos, v.n, v.glpi.join(', '), v.tip, u.cambiosPlan, u.bajas]); });
     add('Upgrades y SVA', up, [22, 10, 50, 12, 10, 8, 30, 12, 12, 14]);

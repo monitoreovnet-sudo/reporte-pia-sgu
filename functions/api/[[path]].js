@@ -225,9 +225,16 @@ async function leerRevisiones(db, id) {
 }
 async function guardarRevision(db, req, yo, id) {
   const b = await cuerpo(req);
-  if (!b || typeof b.clave !== 'string' || !/^g?(sgu|pais)\|/.test(b.clave)) return error(400, 'Revisión no válida.');
+  if (!b || typeof b.clave !== 'string' || !/^(g?(sgu|pais)|t)\|/.test(b.clave)) return error(400, 'Revisión no válida.');
   const c = await db.prepare(`SELECT id FROM cargas WHERE id = ?`).bind(id).first();
   if (!c) return error(404, 'Esa carga ya no existe.');
+  if (b.clave.startsWith('t|')) { // ticket sin título: se guarda el título agregado (o vacío = sigue sin título)
+    const tid = b.clave.slice(2, 40), titulo = String(b.titulo || '').replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 300);
+    await db.prepare(`INSERT INTO revisiones (carga_id, clave, tickets, procede, por, fecha, heredada) VALUES (?, ?, ?, ?, ?, ?, 0)
+      ON CONFLICT (carga_id, clave) DO UPDATE SET tickets = excluded.tickets, procede = excluded.procede, por = excluded.por, fecha = excluded.fecha, heredada = 0`)
+      .bind(id, 't|' + tid, JSON.stringify([tid]), JSON.stringify([titulo]), yo.email, ahoraISO()).run();
+    return json({ ok: true });
+  }
   const tk = ids(b.tickets), pr = ids(b.procede).filter((t) => tk.includes(t));
   if (tk.length < 2) return error(400, 'La revisión necesita al menos dos tickets.');
   if (pr.length === 1) return error(400, 'Para que proceda, seleccione al menos dos tickets, o descarte la reincidencia.');

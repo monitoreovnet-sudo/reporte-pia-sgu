@@ -34,8 +34,9 @@
     function txt(s, text, o) { s.addText(text, Object.assign({ fontFace: FONT, margin: 0, color: C.ink, fontSize: 10 }, o)); }
     function chip(s, x, y, g, label) {
       var t = label || L[g], w = Math.max(0.42, 0.08 + t.length * 0.062);
-      s.addShape(pptx.ShapeType.roundRect, { x: x, y: y, w: w, h: 0.2, rectRadius: 0.1, fill: { color: CHIP[g] || C.purple }, line: { color: CHIP[g] || C.purple, width: 0 } });
-      txt(s, t, { x: x, y: y, w: w, h: 0.2, fontSize: 7.5, bold: true, color: C.white, align: 'center', valign: 'middle' });
+      var inv = g === 'pais'; // País: inverso del chip SGU (borde y letra morados, fondo blanco)
+      s.addShape(pptx.ShapeType.roundRect, { x: x, y: y, w: w, h: 0.2, rectRadius: 0.1, fill: { color: inv ? C.white : (CHIP[g] || C.purple) }, line: { color: inv ? C.purple : (CHIP[g] || C.purple), width: inv ? 1 : 0 } });
+      txt(s, t, { x: x, y: y, w: w, h: 0.2, fontSize: 7.5, bold: true, color: inv ? C.purple : C.white, align: 'center', valign: 'middle' });
       return w;
     }
     function box(s, x, y, w, h, fill) { s.addShape(pptx.ShapeType.roundRect, { x: x, y: y, w: w, h: h, rectRadius: 0.1, fill: { color: fill || C.card }, line: { color: C.cardLine, width: 1 } }); }
@@ -131,13 +132,13 @@
       ], { x: 0.72, y: 1.3, w: 12, h: 0.28, valign: 'middle' });
       var cw = 4.0, ch = 1.66, gx = 0.17, gy = 0.13, x0 = 0.45, y0 = 1.72;
       var X = function (c) { return x0 + c * (cw + gx); }, Y = function (r) { return y0 + r * (ch + gy); };
-      card(s, X(0), Y(0), cw, ch, { label: 'Índice de resolución PIA', chip: 'pia', value: pct(F.ir.pct), unit: miles(F.ir.num) + ' Casos', sub: miles(F.ir.fcr) + ' resueltos en 1er contacto + ' + miles(F.ir.escResueltos) + ' escalados con solución en GLPI, de ' + miles(F.ir.den) + ' casos del PIA' });
+      card(s, X(0), Y(0), cw, ch, { label: 'Índice de resolución PIA', chip: 'pia', value: pct(F.ir.pct), unit: miles(F.ir.num) + ' Casos', sub: miles(F.ir.fcr) + ' resueltos en 1er contacto + ' + miles(F.ir.escResueltos) + ' tickets escalados por PIA ya solucionados, de ' + miles(F.ir.den) + ' casos del PIA' });
       card(s, X(1), Y(0), cw, ch, { label: 'Resolución en 1er contacto (FCR)', chip: 'pia', value: pct(F.fcr.pct), unit: miles(F.fcr.n) + ' Casos', sub: 'de los ' + miles(F.fcr.den) + ' casos únicos tipificados por el PIA' });
       card(s, X(2), Y(0), cw, ch, { label: 'Productividad del punto PIA', chip: 'pia', value: miles(F.productividad.casos) + ' Casos', size: 22, unit: miles(F.productividad.abonados) + ' abonados', sub: 'casos únicos tipificados por ' + R.cfg.sucursal + '; abonados = cédulas distintas' });
       var sem = function (g) { var x = G[g].semana; return { value: pct(x.pct), sub: miles(x.cerradosMisma) + ' de ' + miles(x.abiertos) + ' abiertos (' + R.ventana.corta + ')' }; };
       cardPar(s, X(0), Y(1), cw, ch, 'Cerrados en la misma semana que se abrieron', '', a, b, sem(a), sem(b), sinChipB);
       card(s, X(1), Y(1), cw, ch, { label: 'Satisfacción / NPS', tag: 'Trimestral', value: F.nps || '—', sub: F.nps ? '' : 'sin medición en este corte' });
-      var rei = function (g) { var x = G[g].reinc; return { value: miles(x.abonados), unit: 'Abonados', sub: miles(x.tickets) + ' tickets · ' + pct(x.pct) + ' de ' + miles(x.ftth) + ' FTTH' }; };
+      var rei = function (g) { var x = G[g].reinc; return { value: miles(x.abonados), unit: 'Abonados', sub: miles(x.tickets) + ' tickets · ' + pct(x.pct) + ' de ' + miles(x.ftth) + ' seleccionados' }; };
       cardPar(s, X(2), Y(1), cw, ch, 'Reincidencia de fallas FTTH', '', a, b, rei(a), rei(b), sinChipB);
       cardComparativo(s, X(0), Y(2), cw, ch, cmp);
       cardPar(s, X(1), Y(2), cw, ch, 'Upgrades y SVA', 'Mensual', a, b, upgradesTexto(a), upgradesTexto(b), sinChipB);
@@ -199,13 +200,13 @@
     function laminaCanal() {
       var s = base('ATC · Canal de creación de casos SGU');
       var cw = 4.0, x0 = 0.45, gx = 0.17;
-      card(s, x0, 1.45, cw, 1.4, { label: 'Creados por el PIA', chip: 'pia', value: pct(G.sgu.creados ? G.pia.creados / G.sgu.creados : null), unit: E.tickets(G.pia.creados), sub: 'de los ' + miles(G.sgu.creados) + ' tickets SGU en GLPI' });
+      card(s, x0, 1.45, cw, 1.4, { label: 'Creados por el PIA', chip: 'pia', value: pct(G.sgu.creados ? G.pia.creados / G.sgu.creados : null), unit: E.tickets(G.pia.creados), sub: 'de los ' + miles(G.sgu.creados) + ' tickets SGU, ' + miles(G.pia.creados) + ' fueron creados en PIA' });
       card(s, x0 + cw + gx, 1.45, cw, 1.4, { label: 'Creados en otros canales', chip: 'otras', value: pct(G.sgu.creados ? G.otras.creados / G.sgu.creados : null), unit: E.tickets(G.otras.creados), sub: 'de los ' + miles(G.sgu.creados) + ' tickets SGU en GLPI' });
       card(s, x0 + 2 * (cw + gx), 1.45, cw, 1.4, { label: 'Reincidencia de clientes FTTH', chip: 'sgu', value: miles(G.sgu.reinc.abonados), unit: 'Abonados · ' + miles(G.sgu.reinc.tickets) + ' tickets', sub: 'clientes con 2 o más tickets FTTH en SGU' });
       barra100(s, 0.4, 3.05, 8.6, 1.75, 'Tickets SGU por canal de creación', [{ label: L.pia, n: G.pia.creados, color: C.hot }, { label: L.otras, n: G.otras.creados, color: C.purple }], 0);
       barra100(s, 0.4, 4.95, 8.6, 1.75, 'Peso de San Agustín en el total país', [{ label: L.sgu, n: G.sgu.creados, color: C.hot }, { label: 'Resto del país', n: G.pais.creados, color: C.purple }], 1);
       var pesoSGU = G.sgu.creados / (G.sgu.creados + G.pais.creados);
-      note(s, 9.3, 3.35, 3.6, 3.35, 'El PIA creó el ' + pct(G.sgu.creados ? G.pia.creados / G.sgu.creados : null) + ' de los tickets SGU (' + miles(G.pia.creados) + ' de ' + miles(G.sgu.creados) + ').\n\nSan Agustín generó el ' + (Math.round(pesoSGU * 1000) / 10).toLocaleString('es-VE') + '% de los tickets del país en el período (' + miles(G.sgu.creados) + ' de ' + miles(G.sgu.creados + G.pais.creados) + ').\n\nAdemás, el PIA atendió ' + miles(F.estatus) + ' consultas de estatus que no generan ticket.');
+      note(s, 9.3, 3.35, 3.6, 3.35, 'El PIA creó el ' + pct(G.sgu.creados ? G.pia.creados / G.sgu.creados : null) + ' de los tickets SGU (' + miles(G.pia.creados) + ' de ' + miles(G.sgu.creados) + '). Escaló ' + miles(F.ir.escalados) + ' casos de SGU a la contratista San Agustín. Además, el PIA atendió ' + miles(F.estatus) + ' consultas de estatus que no generan ticket, y en primer contacto resolvió ' + miles(F.fcr.n) + ' casos.\n\nPor su lado, San Agustín generó el ' + (Math.round(pesoSGU * 1000) / 10).toLocaleString('es-VE') + '% de los tickets del país en el período (' + miles(G.sgu.creados) + ' de ' + miles(G.sgu.creados + G.pais.creados) + ').');
     }
 
     /* ---------- 7-8. Productividad ---------- */
@@ -250,7 +251,7 @@
       var RI = gen ? R.reincidenciaGeneral : R.reincidencia;
       var s = base(gen ? 'ATC · Reincidencias de clientes · todas las categorías' : 'ATC · Reincidencias de clientes FTTH');
       card(s, 0.45, 1.45, 2.4, 1.15, { label: 'Abonados', chip: 'sgu', value: miles(RI.abonados), size: 24 });
-      card(s, 3.0, 1.45, 2.4, 1.15, { label: 'Tickets', chip: 'sgu', value: miles(RI.tickets), size: 24, sub: pct(RI.pct) + ' de ' + miles(RI.ftth) + (gen ? ' tickets' : ' FTTH') });
+      card(s, 3.0, 1.45, 2.4, 1.15, { label: 'Tickets', chip: 'sgu', value: miles(RI.tickets), size: 24, sub: pct(RI.pct) + ' de ' + miles(RI.ftth) + ' seleccionados' });
       txt(s, gen ? 'Reincidente: mismo cliente ("Nombre Cliente" de GLPI) con 2 o más tickets de cualquier categoría en SGU durante el período, sin excepción.' : 'Reincidente: mismo cliente ("Nombre Cliente" de GLPI) con 2 o más tickets FTTH en SGU durante el período. No cuenta nada de Cobranzas Masivas' + (R.reincExcluidas.filter(function (c) { return !/cobranzas masivas/i.test(c); }).length ? ' ni ' + R.reincExcluidas.filter(function (c) { return !/cobranzas masivas/i.test(c); }).map(function (c) { return E.catCorta(c).toLowerCase(); }).join(', ') : '') + '.', { x: 0.45, y: 2.68, w: 4.95, h: 0.56, fontSize: 8.5, color: C.muted });
       var cats = Object.keys(RI.porCategoria).sort(function (x, y) { return RI.porCategoria[y] - RI.porCategoria[x]; }).slice(0, 10);
       txt(s, 'Categorías de los tickets reincidentes', { x: 0.45, y: 3.3, w: 5, h: 0.28, fontSize: 10, bold: true });
