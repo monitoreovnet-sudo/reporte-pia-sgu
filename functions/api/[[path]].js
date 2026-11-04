@@ -38,6 +38,8 @@ async function preparar(db) {
   if (listo) return;
   await db.batch(ESQUEMA.map((q) => db.prepare(q)));
   try { await db.prepare(`ALTER TABLE cargas ADD COLUMN meses TEXT`).run(); } catch (e) { /* la columna ya existe */ }
+  try { await db.prepare(`ALTER TABLE cargas ADD COLUMN inicio REAL`).run(); } catch (e) { /* ya existe */ }
+  try { await db.prepare(`ALTER TABLE cargas ADD COLUMN fin REAL`).run(); } catch (e) { /* ya existe */ }
   try { await db.prepare(`ALTER TABLE revisiones ADD COLUMN heredada INTEGER NOT NULL DEFAULT 0`).run(); } catch (e) { /* la columna ya existe */ }
   const hay = await db.prepare(`SELECT COUNT(*) AS n FROM usuarios`).first();
   if (!hay || !hay.n) {
@@ -149,11 +151,12 @@ async function logout(db, req) {
   return json({ ok: true }, 200, { 'set-cookie': cookieSesion('', 0) });
 }
 
+const fecha = (v) => (typeof v === 'number' && isFinite(v) && v > 20000 && v < 80000 ? Math.floor(v) : null);
 function leerMeses(v) { try { const a = JSON.parse(v || '[]'); return Array.isArray(a) ? a.filter((m) => /^\d{4}-\d{2}$/.test(m)) : []; } catch (e) { return []; } }
 function limpiarMeses(a) { return Array.isArray(a) ? JSON.stringify(a.filter((m) => typeof m === 'string' && /^\d{4}-\d{2}$/.test(m)).slice(0, 24)) : null; }
 async function listarCargas(db) {
   const r = await db.prepare(
-    `SELECT id, creado, creado_por, corte, periodo, responsable, nps, glpi_nombre, tip_nombre, resumen, bytes, meses FROM cargas ORDER BY corte DESC, creado DESC`
+    `SELECT id, creado, creado_por, corte, periodo, responsable, nps, glpi_nombre, tip_nombre, resumen, bytes, meses, inicio, fin FROM cargas ORDER BY corte DESC, creado DESC`
   ).all();
   return json({ cargas: (r.results || []).map((c) => ({ ...c, resumen: c.resumen ? JSON.parse(c.resumen) : null, meses: leerMeses(c.meses) })) });
 }
@@ -168,8 +171,8 @@ async function crearCarga(db, req, yo) {
   const id = token(8), partes = Math.ceil(bytes.length / CHUNK);
   const txt = (v, n = 200) => (v == null ? null : String(v).slice(0, n));
   const stmts = [db.prepare(
-    `INSERT INTO cargas (id, creado, creado_por, corte, periodo, responsable, nps, glpi_nombre, tip_nombre, resumen, partes, bytes, meses) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(id, ahoraISO(), yo.email, b.corte, txt(b.periodo, 80), txt(b.responsable, 120), txt(b.nps, 60), txt(b.glpi_nombre), txt(b.tip_nombre), b.resumen ? JSON.stringify(b.resumen).slice(0, 20000) : null, partes, bytes.length, limpiarMeses(b.meses))];
+    `INSERT INTO cargas (id, creado, creado_por, corte, periodo, responsable, nps, glpi_nombre, tip_nombre, resumen, partes, bytes, meses, inicio, fin) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(id, ahoraISO(), yo.email, b.corte, txt(b.periodo, 80), txt(b.responsable, 120), txt(b.nps, 60), txt(b.glpi_nombre), txt(b.tip_nombre), b.resumen ? JSON.stringify(b.resumen).slice(0, 20000) : null, partes, bytes.length, limpiarMeses(b.meses), fecha(b.inicio), fecha(b.fin))];
   for (let i = 0; i < partes; i++) {
     stmts.push(db.prepare(`INSERT INTO carga_partes (carga_id, idx, datos) VALUES (?, ?, ?)`).bind(id, i, bytes.slice(i * CHUNK, (i + 1) * CHUNK)));
   }
@@ -201,9 +204,9 @@ async function editarCarga(db, req, id) {
   const b = await cuerpo(req) || {};
   const c = await db.prepare(`SELECT id FROM cargas WHERE id = ?`).bind(id).first();
   if (!c) return error(404, 'Esa carga ya no existe.');
-  await db.prepare(`UPDATE cargas SET responsable = COALESCE(?, responsable), nps = COALESCE(?, nps), periodo = COALESCE(?, periodo), meses = COALESCE(?, meses), resumen = COALESCE(?, resumen) WHERE id = ?`)
+  await db.prepare(`UPDATE cargas SET responsable = COALESCE(?, responsable), nps = COALESCE(?, nps), periodo = COALESCE(?, periodo), meses = COALESCE(?, meses), inicio = COALESCE(?, inicio), fin = COALESCE(?, fin), resumen = COALESCE(?, resumen) WHERE id = ?`)
     .bind(b.responsable != null ? String(b.responsable).slice(0, 120) : null, b.nps != null ? String(b.nps).slice(0, 60) : null, b.periodo != null ? String(b.periodo).slice(0, 80) : null,
-      b.meses ? limpiarMeses(b.meses) : null, b.resumen ? JSON.stringify(b.resumen).slice(0, 20000) : null, id).run();
+      b.meses ? limpiarMeses(b.meses) : null, fecha(b.inicio), fecha(b.fin), b.resumen ? JSON.stringify(b.resumen).slice(0, 20000) : null, id).run();
   return json({ ok: true });
 }
 

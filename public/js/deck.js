@@ -16,7 +16,7 @@
     var pptx = new PptxGenJS();
     pptx.layout = 'LAYOUT_WIDE';
     pptx.author = R.responsable || 'VNET';
-    pptx.title = (tipo === 'pia' ? 'Gestión PIA vs SGU - ' : 'Gestión SGU vs País - ') + R.periodo + ' ' + R.anio;
+    pptx.title = (tipo === 'pia' ? 'Gestión PIA vs SGU - ' : 'Gestión SGU vs País - ') + R.periodo + (R.anio ? ' ' + R.anio : '');
     var L = R.etiquetas, G = R.g, F = R.fijos;
     var miles = E.miles, pct = E.pct, fmtD = E.fmtD;
     var n = 0, slides = [];
@@ -107,9 +107,11 @@
     /* ---------- 0. Portada ---------- */
     var s0 = pptx.addSlide();
     s0.background = { data: assets.cover };
-    txt(s0, R.periodo, { x: 1.15, y: 2.85, w: 6.3, h: 0.9, fontSize: 44, bold: true, color: C.white });
-    txt(s0, 'Comité PIA · Piloto San Agustín · ' + (tipo === 'pia' ? 'PIA vs. SGU' : 'SGU vs. País'), { x: 1.15, y: 3.75, w: 6.3, h: 0.45, fontSize: 16, color: 'D9CCF2' });
-    txt(s0, 'Atención al Cliente · Fecha de corte ' + R.corteTxt, { x: 1.15, y: 6.45, w: 7, h: 0.35, fontSize: 11, color: 'D9CCF2' });
+    var titulo = R.periodo + (R.anio ? ' ' + R.anio : ''), tam = titulo.length <= 14 ? 44 : (titulo.length <= 22 ? 34 : 28);
+    txt(s0, titulo, { x: 1.15, y: 2.6, w: 7.4, h: 0.9, fontSize: tam, bold: true, color: C.white, fit: 'shrink' });
+    txt(s0, 'Fecha de corte ' + R.corteFecha, { x: 1.15, y: 3.48, w: 6.3, h: 0.3, fontSize: 12, color: 'D9CCF2' });
+    txt(s0, 'Comité PIA · Piloto San Agustín · ' + (tipo === 'pia' ? 'PIA vs. SGU' : 'SGU vs. País'), { x: 1.15, y: 3.9, w: 6.3, h: 0.45, fontSize: 16, color: 'D9CCF2' });
+    txt(s0, 'Atención al Cliente · Datos descargados el ' + R.descargaTxt, { x: 1.15, y: 6.45, w: 7, h: 0.35, fontSize: 11, color: 'D9CCF2' });
 
     /* ---------- 1-3. Indicadores ---------- */
     function upgradesTexto(g) {

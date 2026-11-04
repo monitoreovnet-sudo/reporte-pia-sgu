@@ -84,7 +84,7 @@ button { cursor: pointer; }
 .page-h p { margin: 2px 0 0; color: var(--muted); max-width: 70ch; }
 .panel { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 18px; display: grid; gap: 14px; min-width: 0; align-content: start; }
 .panel h2 { margin: 0; font-size: 15px; font-weight: 700; }
-.grid-form { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+.grid-form { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); align-items: start; }
 .drop { position: relative; border: 1.5px dashed #c8c6c4; border-radius: 6px; padding: 12px 14px; background: #faf9f8; min-height: 78px; display: grid; align-content: center; gap: 2px; }
 .drop:hover, .drop.drag { border-color: var(--brand); }
 .drop.has { border-style: solid; border-color: var(--brand); background: var(--lav); }

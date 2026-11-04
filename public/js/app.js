@@ -91,7 +91,7 @@
   function calcular() {
     if (!S.activa) { S.R = null; return null; }
     var m = S.activa.meta;
-    var R = E.compute(S.activa.glpi, S.activa.tip, Object.assign({}, filtros(), { corte: m.corte, nps: m.nps || '', meses: m.meses && m.meses.length ? m.meses : null, revisiones: S.activa.rev || {} }));
+    var R = E.compute(S.activa.glpi, S.activa.tip, Object.assign({}, filtros(), { corte: m.corte, nps: m.nps || '', meses: m.meses && m.meses.length ? m.meses : null, inicio: typeof m.inicio === 'number' ? m.inicio : undefined, fin: typeof m.fin === 'number' ? m.fin : undefined, revisiones: S.activa.rev || {} }));
     R.responsable = m.responsable || '';
     S.R = R;
     return R;
@@ -185,7 +185,7 @@
   function ctxSelector() {
     if (!S.cargas.length) return '';
     var opts = S.cargas.map(function (c) {
-      return '<option value="' + c.id + '"' + (S.activa && S.activa.id === c.id ? ' selected' : '') + '>' + esc((c.periodo || '') + ' · corte ' + corteTxt(c.corte)) + '</option>';
+      return '<option value="' + c.id + '"' + (S.activa && S.activa.id === c.id ? ' selected' : '') + '>' + esc((c.periodo || '') + ' · descarga ' + corteTxt(c.corte)) + '</option>';
     }).join('');
     var m = S.activa && S.activa.meta;
     return '<label class="lbl" for="ctxSel">Carga</label><select id="ctxSel">' + (S.activa ? '' : '<option value="">Elija una carga</option>') + opts + '</select>' +
@@ -245,13 +245,13 @@
         '<td><div class="row" style="flex-wrap:nowrap">' + (v2 ? '<button class="btn sm primary" data-a="informe">Informe</button><button class="btn sm" data-a="presentacion">Presentación</button>' : '<span class="hint">Vuelva a subir los archivos</span>') + '<button class="btn sm" data-a="editar">Editar</button>' +
         (S.yo.admin ? '<button class="btn sm danger" data-a="borrar">Eliminar</button>' : '') + '</div></td></tr>';
     }).join('');
-    var lista = S.cargas.length ? '<div class="tbl"><table class="data list"><thead><tr><th>Período</th><th>Corte</th><th>Responsable</th><th>NPS</th><th>GLPI / SGU</th><th>Tipificados SGU</th><th>Subida por</th><th></th></tr></thead><tbody>' + filas + '</tbody></table></div>'
+    var lista = S.cargas.length ? '<div class="tbl"><table class="data list"><thead><tr><th>Período</th><th>Descarga</th><th>Responsable</th><th>NPS</th><th>GLPI / SGU</th><th>Tipificados SGU</th><th>Subida por</th><th></th></tr></thead><tbody>' + filas + '</tbody></table></div>'
       : '<div class="empty"><b>Todavía no hay cargas guardadas.</b><span class="muted">Suba la primera con el formulario de arriba. Quedará disponible para todos los usuarios autorizados.</span></div>';
     var hist = S.cargas.filter(esV2).slice().sort(function (a, b) { return a.corte - b.corte; });
     var histHtml = hist.length ? '<section class="panel"><h2>Histórico de cortes</h2><p class="hint">Valores guardados al subir cada carga, para comparar meses.</p><div class="tbl"><table class="data"><thead><tr><th>Corte</th><th>IR-PIA</th><th>FCR</th><th>Casos PIA</th><th>Prom. PIA</th><th>Prom. SGU</th><th>Prom. país</th><th>Cerrados semana SGU</th><th>Reincidencia SGU</th><th>Upgrades SGU</th></tr></thead><tbody>' +
       hist.map(function (c) {
         var r = c.resumen, g = r.g;
-        return '<tr><td>' + esc(r.periodo) + '<div class="hint">' + esc(corteTxt(c.corte)) + '</div></td><td class="n">' + pct(r.ir.pct) + '</td><td class="n">' + pct(r.fcr.pct) + '</td><td class="n">' + num(r.prod.casos) + '</td>' +
+        return '<tr><td>' + esc(c.periodo || r.periodo) + '<div class="hint">corte ' + esc(r.corte) + ' · descarga ' + esc(corteTxt(c.corte)) + '</div></td><td class="n">' + pct(r.ir.pct) + '</td><td class="n">' + pct(r.fcr.pct) + '</td><td class="n">' + num(r.prod.casos) + '</td>' +
           '<td class="n">' + E.fmtD(g.pia.prom) + '</td><td class="n">' + E.fmtD(g.sgu.prom) + '</td><td class="n">' + E.fmtD(g.pais.prom) + '</td><td class="n">' + pct(g.sgu.semana) + '</td><td class="n">' + num(g.sgu.reincAb) + ' ab. / ' + num(g.sgu.reincTk) + ' tk</td><td class="n">' + num(g.sgu.upgrades) + '</td></tr>';
       }).join('') + '</tbody></table></div></section>' : '';
     var now = new Date(); now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
@@ -259,8 +259,10 @@
       '<form class="panel" id="up" novalidate><h2>Nueva carga</h2><div class="grid-form">' +
       '<div class="field"><label for="fG">Archivo de GLPI</label><div class="drop" id="dG"><input type="file" id="fG" accept=".xlsx,.xls,.xlsm,.csv,.txt,.ods"><strong>Seleccione o arrastre el archivo</strong><small>Excel o CSV exportado de GLPI</small></div></div>' +
       '<div class="field"><label for="fT">Archivo del Tipificador</label><div class="drop" id="dT"><input type="file" id="fT" accept=".xlsx,.xls,.xlsm,.csv,.txt,.ods"><strong>Seleccione o arrastre el archivo</strong><small>Excel o CSV de la lista</small></div></div>' +
-      '<div class="field"><label for="fC">Fecha y hora de descarga</label><input class="input" type="datetime-local" id="fC" value="' + now.toISOString().slice(0, 16) + '"><span class="hint">Define el período (del día 1 a esta fecha) y la semana (los 8 días anteriores).</span></div></div>' +
-      '<div class="field"><span class="lbl">Meses que se toman en cuenta para el informe</span><div class="row meses" id="fM"></div><span class="hint">GLPI se filtra por fecha de apertura y el Tipificador por fecha, solo en los meses marcados y hasta la fecha de descarga. Por defecto, el mes de la descarga.</span></div>' +
+      '<div class="field"><label for="fC">Fecha y hora de descarga</label><input class="input" type="datetime-local" id="fC" value="' + now.toISOString().slice(0, 16) + '"><span class="hint">Cuándo se bajó la data. El informe nunca va más allá de esta fecha y hora.</span></div></div>' +
+      '<div class="field"><span class="lbl">Meses del informe</span><div class="row meses" id="fM"></div><span class="hint">Marque uno o varios meses seguidos (por ejemplo septiembre, octubre o septiembre + octubre). Llenan las fechas de abajo, que también puede cambiar a mano.</span></div>' +
+      '<div class="grid-form"><div class="field"><label for="fI">Fecha de inicio</label><input class="input" type="date" id="fI"><span class="hint">Desde este día (00:00).</span></div>' +
+      '<div class="field"><label for="fF">Fecha final</label><input class="input" type="date" id="fF"><span class="hint">Hasta este día (23:59). La fecha de corte es la fecha final, o la de descarga si es anterior; la semana son los 8 días antes del corte.</span></div></div>' +
       '<div class="grid-form"><div class="field"><label for="fR">Responsable</label><input class="input" id="fR" value="' + esc(lastResp()) + '"></div>' +
       '<div class="field"><label for="fN">Satisfacción / NPS (opcional)</label><input class="input" id="fN" placeholder="Ej. 72 NPS"></div></div>' +
       '<p class="hint">Si es un solo Excel con varias hojas (GLPI y Tipificador), puede subir el mismo archivo en los dos campos: la app busca cada hoja por sus encabezados.</p>' +
@@ -272,7 +274,8 @@
       var m = document.getElementById('fC').value.match(/^(\d{4})-(\d{2})/), cont = document.getElementById('fM');
       if (!m) { cont.innerHTML = ''; return; }
       var prev = Array.prototype.map.call(cont.querySelectorAll('input:checked'), function (i) { return i.value; });
-      cont.innerHTML = opcionesMeses(+m[1], +m[2]).map(function (k, i) { var on = prev.length ? prev.indexOf(k) >= 0 : i === 0; return '<label class="chk"><input type="checkbox" value="' + k + '"' + (on ? ' checked' : '') + '> ' + nombreMes(k) + '</label>'; }).join('');
+      cont.innerHTML = opcionesMeses(+m[1], +m[2]).reverse().map(function (k, i, a) { var on = prev.length ? prev.indexOf(k) >= 0 : i === a.length - 1; return '<label class="chk"><input type="checkbox" value="' + k + '"' + (on ? ' checked' : '') + '> ' + nombreMes(k) + '</label>'; }).join('');
+      enlazarMeses(cont, document.getElementById('fI'), document.getElementById('fF'));
     }
     document.getElementById('fC').addEventListener('change', function () { document.getElementById('fM').innerHTML = ''; pintarMeses(); });
     pintarMeses();
@@ -295,7 +298,10 @@
       var corte = E.serialFromParts(+m[1], +m[2], +m[3], +m[4], +m[5], 0);
       var resp = document.getElementById('fR').value.trim(), nps = document.getElementById('fN').value.trim();
       var meses = Array.prototype.map.call(document.querySelectorAll('#fM input:checked'), function (i) { return i.value; });
-      if (!meses.length) return fail('Marque al menos un mes para el informe.');
+      var inicio = diaDeInput(document.getElementById('fI').value), fin = diaDeInput(document.getElementById('fF').value);
+      if (inicio === null || fin === null) return fail('Indique la fecha de inicio y la fecha final del informe.');
+      if (fin < inicio) return fail('La fecha final es anterior a la fecha de inicio.');
+      if (inicio > corte) return fail('La fecha de inicio es posterior a la descarga: no hay datos para ese período.');
       try { localStorage.setItem('pia-resp', resp); } catch (e) { /* nada */ }
       b.disabled = true; st.textContent = 'Leyendo archivos…';
       Promise.all([
@@ -303,15 +309,15 @@
         readTable(files.t, E.loadTipif).catch(function (e) { throw new Error('Tipificador: ' + e.message); })
       ]).then(function (res) {
         st.textContent = 'Calculando…';
-        var R = E.compute(res[0], res[1], Object.assign({}, filtros(), { corte: corte, nps: nps, meses: meses }));
-        if (!R.volumen.glpi) throw new Error('GLPI no tiene tickets abiertos en los meses marcados (' + meses.map(nombreMes).join(', ') + ') hasta la fecha de descarga. Revise la fecha y los meses.');
-        if (!R.fijos.fcr.den) throw new Error('El Tipificador no tiene casos de "' + filtros().sucursal + '" en los meses marcados.');
-        var periodo = R.periodoTxt;
+        var R = E.compute(res[0], res[1], Object.assign({}, filtros(), { corte: corte, nps: nps, meses: meses, inicio: inicio, fin: fin }));
+        if (!R.volumen.glpi) throw new Error('GLPI no tiene tickets abiertos ' + R.rangoTxt + '. Revise las fechas.');
+        if (!R.fijos.fcr.den) throw new Error('El Tipificador no tiene casos de "' + filtros().sucursal + '" entre la fecha de inicio y la final.');
+        var periodo = R.periodoLargo;
         if (!R.g.sgu.creados) throw new Error('GLPI no tiene tickets con "' + filtros().sguMarker + '" en el título.');
         st.textContent = 'Comprimiendo y guardando…';
         var snap = E.snapshot(R); snap.v = 3; snap.vol = { glpi: R.volumen.glpi };
         return gzip(empaquetar(res[0], res[1])).then(function (gz) {
-          return api('POST', 'cargas', { datos: u8ToB64(gz), corte: corte, periodo: periodo, responsable: resp, nps: nps, glpi_nombre: files.g.name, tip_nombre: files.t.name, resumen: snap, meses: meses });
+          return api('POST', 'cargas', { datos: u8ToB64(gz), corte: corte, periodo: periodo, responsable: resp, nps: nps, glpi_nombre: files.g.name, tip_nombre: files.t.name, resumen: snap, meses: R.meses, inicio: inicio, fin: fin });
         }).then(function (j) { CACHE[j.id] = { glpi: res[0], tip: res[1] }; S.heredadas = j.heredadas || 0; return j.id; });
       }).then(function (id) {
         return cargarLista().then(function () { return activar(id); });
@@ -332,27 +338,53 @@
           if (btn.dataset.mode === 'save') {
             var body = {};
             tr.querySelectorAll('td.ed input.input').forEach(function (i) { body[i.name] = i.value.trim(); });
-            var mesesN = Array.prototype.map.call(tr.querySelectorAll('.meses input:checked'), function (i) { return i.value; });
-            if (!mesesN.length) { toast('Marque al menos un mes.', true); return; }
-            var antes = (c.meses && c.meses.length ? c.meses : [mesDeCorte(c.corte)]).slice().sort().join(',');
-            var cambiaMeses = mesesN.slice().sort().join(',') !== antes;
-            if (cambiaMeses) body.meses = mesesN;
+            var iN = diaDeInput(tr.querySelector('.ed-ini').value), fN = diaDeInput(tr.querySelector('.ed-fin').value);
+            if (iN === null || fN === null || fN < iN) { toast('Revise la fecha de inicio y la fecha final.', true); return; }
+            var r0 = rangoDe(c);
+            var cambiaMeses = iN !== r0[0] || fN !== r0[1];
+            if (cambiaMeses) { body.inicio = iN; body.fin = fN; }
             btn.disabled = true;
             return api('PATCH', 'cargas/' + id, body).then(cargarLista).then(function () {
               if (!cambiaMeses || !esV2(c)) return;
               delete CACHE[id];
-              return activar(id).then(function () { var snap = E.snapshot(S.R); snap.v = 3; snap.vol = { glpi: S.R.volumen.glpi }; return api('PATCH', 'cargas/' + id, { resumen: snap, periodo: S.R.periodoTxt }); }).then(cargarLista);
+              return activar(id).then(function () { var snap = E.snapshot(S.R); snap.v = 3; snap.vol = { glpi: S.R.volumen.glpi }; return api('PATCH', 'cargas/' + id, { resumen: snap, periodo: S.R.periodoLargo }); }).then(cargarLista);
             }).then(function () { toast('Cambios guardados.'); renderRepo(); }, function (e) { btn.disabled = false; toast(e.message, true); });
           }
           tr.querySelectorAll('td.ed').forEach(function (td) { var f = td.getAttribute('data-f'); td.innerHTML = '<input class="input" name="' + f + '" value="' + esc(c[f] || '') + '" aria-label="' + f + '">'; });
-          var p0 = E.partsFromSerial(c.corte), sel = c.meses && c.meses.length ? c.meses : [mesDeCorte(c.corte)];
-          tr.cells[0].insertAdjacentHTML('beforeend', '<div class="row meses" style="margin-top:6px">' + opcionesMeses(p0.y, p0.mo).map(function (k) { return '<label class="chk"><input type="checkbox" value="' + k + '"' + (sel.indexOf(k) >= 0 ? ' checked' : '') + '> ' + nombreMes(k) + '</label>'; }).join('') + '</div>');
+          var p0 = E.partsFromSerial(c.corte), rg = rangoDe(c), sel = mesesDeRango(rg[0], rg[1]);
+          tr.cells[0].insertAdjacentHTML('beforeend', '<div class="row meses" style="margin-top:6px">' + opcionesMeses(p0.y, p0.mo).reverse().map(function (k) { return '<label class="chk"><input type="checkbox" value="' + k + '"' + (sel.indexOf(k) >= 0 ? ' checked' : '') + '> ' + nombreMes(k) + '</label>'; }).join('') + '</div>' +
+            '<div class="row" style="margin-top:6px"><label class="hint">Inicio <input class="input ed-ini" type="date" value="' + inputDeDia(rg[0]) + '"></label><label class="hint">Final <input class="input ed-fin" type="date" value="' + inputDeDia(rg[1]) + '"></label></div>');
+          enlazarMeses(tr.querySelector('.meses'), tr.querySelector('.ed-ini'), tr.querySelector('.ed-fin'));
           btn.dataset.mode = 'save'; btn.textContent = 'Guardar'; btn.classList.add('primary');
         }
       });
     });
   }
   function opcionesMeses(y, mo) { var out = []; for (var i = 0; i < 6; i++) { var yy = y, mm = mo - i; while (mm < 1) { mm += 12; yy--; } out.push(yy + '-' + (mm < 10 ? '0' : '') + mm); } return out; }
+  function diaDeInput(v) { var m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? E.serialFromParts(+m[1], +m[2], +m[3]) : null; }
+  function inputDeDia(x) { var p = E.partsFromSerial(x); return p.y + '-' + (p.mo < 10 ? '0' : '') + p.mo + '-' + (p.d < 10 ? '0' : '') + p.d; }
+  function finDeMes(k) { return E.serialFromParts(+k.slice(0, 4), +k.slice(5) + 1, 1) - 1; }
+  function iniDeMes(k) { return E.serialFromParts(+k.slice(0, 4), +k.slice(5), 1); }
+  /** rango [inicio, fin] de una carga (las anteriores solo tienen meses) */
+  function rangoDe(c) {
+    if (typeof c.inicio === 'number' && typeof c.fin === 'number') return [c.inicio, c.fin];
+    var ms = (c.meses && c.meses.length ? c.meses : [mesDeCorte(c.corte)]).slice().sort();
+    return [iniDeMes(ms[0]), finDeMes(ms[ms.length - 1])];
+  }
+  function mesesDeRango(a, b) { var out = [], p = E.partsFromSerial(a), q = E.partsFromSerial(b), y = p.y, m = p.mo; while (y < q.y || (y === q.y && m <= q.mo)) { out.push(y + '-' + (m < 10 ? '0' : '') + m); m++; if (m > 12) { m = 1; y++; } } return out; }
+  /** casillas de meses: siempre seguidos; llenan inicio (día 1) y final (último día del mes) */
+  function enlazarMeses(cont, fI, fF) {
+    function aplicar(ev) {
+      var cbs = Array.prototype.slice.call(cont.querySelectorAll('input[type=checkbox]')), idx = [];
+      cbs.forEach(function (x, i) { if (x.checked) idx.push(i); });
+      if (!idx.length) { if (ev && ev.target) ev.target.checked = true; return aplicar(); }
+      var a = idx[0], b = idx[idx.length - 1];
+      cbs.forEach(function (x, i) { x.checked = i >= a && i <= b; });
+      fI.value = inputDeDia(iniDeMes(cbs[a].value)); fF.value = inputDeDia(finDeMes(cbs[b].value));
+    }
+    cont.addEventListener('change', aplicar);
+    if (!fI.value || !fF.value) aplicar();
+  }
   function mesDeCorte(x) { var p = E.partsFromSerial(x); return p.y + '-' + (p.mo < 10 ? '0' : '') + p.mo; }
   function nombreMes(k) { return E.MESES[+k.slice(5) - 1] + ' ' + k.slice(0, 4); }
   function lastResp() { try { return localStorage.getItem('pia-resp') || 'Gabriela Silva'; } catch (e) { return 'Gabriela Silva'; } }
@@ -404,7 +436,7 @@
 
   function paginaInforme(i, R, cmpIdx) {
     var G = R.g, F = R.fijos, L = R.etiquetas;
-    var head = '<div class="rpage-h"><h2>' + esc(PAGINAS[i]) + (i === 0 ? ' · ' + CMPS[cmpIdx][3] : '') + '</h2><span>' + esc(R.periodoTxt + ' · corte ' + R.corteTxt + ' · ' + (R.responsable || '') + ' · ' + R.fuentesTxt) + '</span></div>';
+    var head = '<div class="rpage-h"><h2>' + esc(PAGINAS[i]) + (i === 0 ? ' · ' + CMPS[cmpIdx][3] : '') + '</h2><span>' + esc(R.periodoLargo + ' · corte ' + R.corteFecha + ' · ' + (R.responsable || '') + ' · ' + R.fuentesTxt) + '</span></div>';
     var body = '';
     if (i === 0) {
       var a = CMPS[cmpIdx][0], b = CMPS[cmpIdx][1], cmp = R.comparativos[CMPS[cmpIdx][2]];
@@ -612,7 +644,7 @@
   function renderInforme() {
     var R = S.R;
     if (R && (revPend(R) || S.verRev)) { shell('informe', ctxSelector(), paginaRevision(R)); bindCtx(); bindRevision(); return; }
-    shell('informe', ctxSelector(), R ? '<div class="report"><div class="report-main"><div class="report-bar"><h1>Informe · ' + esc(R.periodoTxt.replace('(', R.anio + ' (')) + '</h1><span class="spacer"></span>' +
+    shell('informe', ctxSelector(), R ? '<div class="report"><div class="report-main"><div class="report-bar"><h1>Informe · ' + esc(R.periodoLargo) + '</h1><span class="spacer"></span>' +
       (R.revision.total ? '<button class="btn" id="xRev">Revisión de reincidencias (' + num(R.revision.total) + ')</button>' : '') + '<button class="btn" id="xPdf">' + ICONS.down + 'Informe PDF</button><button class="btn" id="xXls">' + ICONS.down + 'Informe Excel</button></div>' +
       '<div class="canvas" id="canvas">' + paginaInforme(S.tab, R, S.cmp || 0) + '</div>' +
       '<div class="tabs" role="tablist">' + PAGINAS.map(function (p, i) { return '<button type="button" role="tab" data-t="' + i + '" aria-selected="' + (i === S.tab) + '">' + esc(p) + (i === 8 && controlesAlerta(R) ? ' <span class="dot" title="Hay elementos para revisar"></span>' : '') + '</button>'; }).join('') + '</div></div>' +
@@ -732,13 +764,15 @@
     });
   }
 
-  function baseName() { var R = S.R; return 'Gestion SGU VS PAIS - ' + String(R.periodo).toUpperCase() + ' ' + R.corteFecha.replace(/\//g, '-'); }
+  /** Nombre de archivo: meses del informe y fecha y hora de la descarga */
+  function nombrePeriodo(R) { return (String(R.periodo) + (R.anio ? ' ' + R.anio : '')).toUpperCase() + ' - descarga ' + R.descargaArchivo; }
+  function baseName() { return 'Gestion SGU VS PAIS - ' + nombrePeriodo(S.R); }
 
   function exportExcel() {
     var R = S.R, G = R.g, F = R.fijos, L = R.etiquetas, LL = R.etiquetasLargas, wb = XLSX.utils.book_new();
     function add(name, aoa, widths) { var ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = (widths || []).map(function (w) { return { wch: w }; }); XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31)); }
     var segs = GS.map(function (g) { return LL[g]; });
-    var ind = [['Reporte PIA · SGU vs País'], ['Responsable', R.responsable || ''], ['Período', R.periodoTxt + ' ' + R.anio], ['Fecha de corte', R.corteTxt], ['Fuentes', R.fuentesTxt], ['Semana', R.ventana.desde + ' al ' + R.ventana.hasta], [],
+    var ind = [['Reporte PIA · SGU vs País'], ['Responsable', R.responsable || ''], ['Período', R.periodoLargo + ' · ' + R.rangoTxt], ['Fecha de corte', R.corteFecha], ['Descarga', R.descargaTxt], ['Fuentes', R.fuentesTxt], ['Semana', R.ventana.desde + ' al ' + R.ventana.hasta], [],
       ['Indicadores fijos (PIA)', 'Valor', 'Detalle'],
       ['Índice de resolución PIA', F.ir.pct, '(' + F.ir.fcr + ' en 1er contacto + ' + F.ir.escResueltos + ' escalados con solución en GLPI) de ' + F.ir.den + ' casos'],
       ['Resolución en 1er contacto (FCR)', F.fcr.pct, F.fcr.n + ' de ' + F.fcr.den + ' casos tipificados'],
@@ -854,7 +888,7 @@
   /* ================= presentación (estilo PowerPoint) ================= */
   var DECKS = [['pia', 'PIA vs. SGU', 'PIA VS SGU'], ['sgu', 'SGU vs. País', 'SGU VS PAIS']];
   function deckTipo() { return S.deck === 'sgu' ? 'sgu' : 'pia'; }
-  function deckName() { var R = S.R, d = DECKS.filter(function (x) { return x[0] === deckTipo(); })[0]; return 'Gestion ' + d[2] + ' - ' + String(R.periodo).toUpperCase() + ' ' + R.corteFecha.replace(/\//g, '-'); }
+  function deckName() { var R = S.R, d = DECKS.filter(function (x) { return x[0] === deckTipo(); })[0]; return 'Gestion ' + d[2] + ' - ' + nombrePeriodo(R); }
   function buildHtmlDeck() { return D.build(H.HtmlDeck, S.R, S.assets, E, deckTipo()); }
   function fit(stageEl, box) { var sc = box.clientWidth / H.WIDTH; stageEl.style.transform = 'scale(' + sc + ')'; }
   function renderDeck() {
@@ -863,7 +897,7 @@
     if (revPend(R)) { shell('presentacion', ctxSelector(), puertaRevision('La presentación')); bindCtx(); return; }
     var deck = buildHtmlDeck(), n = deck.slides.length;
     if (S.slide >= n) S.slide = n - 1;
-    shell('presentacion', ctxSelector(), '<div class="deck"><div class="deck-bar"><div class="seg" role="group" aria-label="Presentación">' + DECKS.map(function (d) { return '<button type="button" data-deck="' + d[0] + '" aria-pressed="' + (deckTipo() === d[0]) + '">' + d[1] + '</button>'; }).join('') + '</div><b>' + esc(R.periodoTxt.replace('(', R.anio + ' (')) + '</b><span class="hint">' + n + ' diapositivas</span><span class="spacer"></span>' +
+    shell('presentacion', ctxSelector(), '<div class="deck"><div class="deck-bar"><div class="seg" role="group" aria-label="Presentación">' + DECKS.map(function (d) { return '<button type="button" data-deck="' + d[0] + '" aria-pressed="' + (deckTipo() === d[0]) + '">' + d[1] + '</button>'; }).join('') + '</div><b>' + esc(R.periodoLargo) + '</b><span class="hint">' + n + ' diapositivas</span><span class="spacer"></span>' +
       '<button class="btn" id="pShow">' + ICONS.play + 'Presentar</button><button class="btn" id="pPptx">' + ICONS.down + 'PowerPoint</button><button class="btn" id="pPdf">' + ICONS.down + 'PDF</button></div>' +
       '<div class="thumbs" id="thumbs"></div><div class="stage-wrap"><div style="width:100%;max-width:1180px"><div class="stage" id="stage"></div><div class="stage-nav"><button class="btn sm" id="pPrev">‹ Anterior</button><span id="pNum"></span><button class="btn sm" id="pNext">Siguiente ›</button></div>' +
       '<p class="hint" style="text-align:center">Use los filtros del Informe para elegir las categorías y grupos que aparecen aquí.</p></div></div></div>');

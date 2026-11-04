@@ -315,11 +315,25 @@
   function compute(glpiAll, tipAll, opts) {
     var cfg = Object.assign({}, DEFAULTS, opts || {});
     if (typeof cfg.corte !== 'number') throw new Error('Falta la fecha y hora de descarga.');
-    var FD = cfg.corte, fdDay = Math.floor(FD + 1e-9), fp = partsFromSerial(FD);
-    var mesFD = fp.y + '-' + pad(fp.mo);
-    var meses = (Array.isArray(cfg.meses) && cfg.meses.length ? cfg.meses : [mesFD]).filter(function (m) { return /^\d{4}-\d{2}$/.test(m) && m <= mesFD; }).sort();
-    if (!meses.length) meses = [mesFD];
-    var enMeses = function (x) { if (x === null || x === undefined) return false; var p = partsFromSerial(x); return meses.indexOf(p.y + '-' + pad(p.mo)) >= 0; };
+    /* Fechas: descarga = cuándo se bajó la data; inicio y fin = días del informe (completos);
+       corte = fin del informe: el día siguiente a "fin" a las 00:00, o la descarga si es antes. */
+    var DESC = cfg.corte, dp = partsFromSerial(DESC);
+    var ini, fin;
+    if (typeof cfg.inicio === 'number' && typeof cfg.fin === 'number') { ini = Math.floor(cfg.inicio + 1e-9); fin = Math.floor(cfg.fin + 1e-9); }
+    else { // cargas anteriores: meses marcados (por defecto, el mes de la descarga)
+      var mesD = dp.y + '-' + pad(dp.mo);
+      var ms = (Array.isArray(cfg.meses) && cfg.meses.length ? cfg.meses : [mesD]).filter(function (m) { return /^\d{4}-\d{2}$/.test(m) && m <= mesD; }).sort();
+      if (!ms.length) ms = [mesD];
+      var a = ms[0], b = ms[ms.length - 1];
+      ini = serialFromParts(+a.slice(0, 4), +a.slice(5), 1);
+      fin = serialFromParts(+b.slice(0, 4), +b.slice(5) + 1, 1) - 1;
+    }
+    if (fin < ini) { var tmp = ini; ini = fin; fin = tmp; }
+    var FD = Math.min(fin + 1, DESC), fdDay = Math.floor(FD + 1e-9), fp = partsFromSerial(FD);
+    var corteEsFin = FD === fin + 1;
+    var ultimoDia = corteEsFin ? fin : (Math.abs(FD - fdDay) < 1e-9 ? fdDay - 1 : fdDay); // último día con datos
+    var meses = []; (function () { var p = partsFromSerial(ini), q = partsFromSerial(ultimoDia), y = p.y, m = p.mo; while (y < q.y || (y === q.y && m <= q.mo)) { meses.push(y + '-' + pad(m)); m++; if (m > 12) { m = 1; y++; } } })();
+    var enMeses = function (x) { return x !== null && x !== undefined && x >= ini - 1e-9; };
     var wIni = fdDay - 8, wFin = fdDay; // ventana: [FD-8, FD-1] completos
     var marker = norm(cfg.sguMarker);
     var catKeys = cfg.categorias.map(norm);
@@ -334,7 +348,7 @@
     var homologadas = [], fueraPeriodo = 0;
     var T = [];
     glpiAll.forEach(function (raw, idx) {
-      if (raw.apertura === null || !enMeses(raw.apertura) || raw.apertura > FD) { fueraPeriodo++; return; }
+      if (raw.apertura === null || !enMeses(raw.apertura) || raw.apertura >= fin + 1 || raw.apertura > DESC) { fueraPeriodo++; return; }
       var cat = homologar(raw.categoria);
       if (cat !== String(raw.categoria).trim()) homologadas.push({ id: raw.id, de: raw.categoria, a: cat });
       var sgu = norm(raw.titulo).indexOf(marker) >= 0;
@@ -362,7 +376,7 @@
     /* --- Tipificador del mes --- */
     var tipMes = [], tipFuera = 0, tipFueraSA = 0;
     tipAll.forEach(function (r) {
-      if (r.fecha === null || !enMeses(r.fecha) || r.fecha > FD) { tipFuera++; if (eq(r.sucursal, cfg.sucursal)) tipFueraSA++; return; }
+      if (r.fecha === null || !enMeses(r.fecha) || r.fecha >= fin + 1 || r.fecha > DESC) { tipFuera++; if (eq(r.sucursal, cfg.sucursal)) tipFueraSA++; return; }
       tipMes.push(r);
     });
     /* duplicados del PIA: misma categoría, subcategoría, motivo, fecha (día) y cédula → se cuenta una sola vez */
@@ -453,7 +467,8 @@
     var colaRevision = [];
     /* tipo 'ftth': categorías FTTH (con los filtros); tipo 'general': todos los tickets, sin excepción.
        ambito: 'sgu' o 'pais' (prefijo de la decisión); revisar=false cuenta sin revisión humana (general del país). */
-    function reincidencia(L, ambito, tipo, revisar) {
+    /* base: resultado de SGU total para PIA y otras unidades; ahí manda la revisión de SGU (pendiente o decisión). */
+    function reincidencia(L, ambito, tipo, revisar, base) {
       var general = tipo === 'general';
       var ftth = general ? L.slice() : L.filter(function (t) { return esReincidible(t.catK) && reincFuera.indexOf(t.catK) < 0; });
       /* el cliente se identifica por la columna "Nombre Cliente" (sin acentos, mayúsculas ni signos);
@@ -464,9 +479,18 @@
         if (!porCli[k]) { porCli[k] = []; orden.push(k); }
         porCli[k].push(t);
       });
-      var reinc = [], pendientes = [], descartados = [], revisados = 0;
+      var reinc = [], pendientes = [], descartados = [], revisados = 0, estado = {};
       orden.forEach(function (k) {
         var ts = porCli[k]; if (ts.length < 2) return;
+        if (base) {
+          var eb = base.estado[k];
+          if (eb && eb.pend) return;
+          if (eb && eb.rev) { ts = ts.filter(function (t) { return eb.procede.indexOf(t.id) >= 0; }); if (ts.length < 2) return; }
+          var ctas0 = []; ts.forEach(function (t) { if (t.cuenta && ctas0.indexOf(t.cuenta) < 0) ctas0.push(t.cuenta); });
+          var cats0 = []; ts.forEach(function (t) { var c = catCorta(t.cat); if (cats0.indexOf(c) < 0) cats0.push(c); });
+          reinc.push({ cuenta: ctas0.join(' / '), cuentas: ctas0, nombre: String(ts[0].raw.cliente).trim().toUpperCase(), categorias: cats0, revision: eb && eb.rev ? eb.rev : null, tickets: ts.map(tkInfo) });
+          return;
+        }
         var motivos = revisar === false ? [] : motivosRevision(ts), rev = null;
         if (motivos.length) {
           var clave = (general ? 'g' : '') + ambito + '|' + k, dec = REV[clave];
@@ -477,12 +501,13 @@
           if (!cubre && general && cubreDe(REV[ambito + '|' + k])) { dec = REV[ambito + '|' + k]; cubre = true; decClave = ambito + '|' + k; reutilizada = true; }
           if (!cubre) {
             var ant = dec && Array.isArray(dec.tickets) ? { tickets: dec.tickets, procede: dec.procede || [], por: dec.por || '', heredada: !!dec.heredada } : null;
-            pendientes.push({ clave: clave, tipo: general ? 'general' : 'ftth', nombre: String(ts[0].raw.cliente).trim().toUpperCase(), motivos: motivos, tickets: ts.map(tkInfo), anterior: ant }); return;
+            pendientes.push({ clave: clave, tipo: general ? 'general' : 'ftth', nombre: String(ts[0].raw.cliente).trim().toUpperCase(), motivos: motivos, tickets: ts.map(tkInfo), anterior: ant }); estado[k] = { pend: true }; return;
           }
           var todos = ts;
           ts = ts.filter(function (t) { return (dec.procede || []).indexOf(t.id) >= 0; });
           rev = { clave: decClave, reutilizada: reutilizada, tipo: general ? 'general' : 'ftth', heredada: !!dec.heredada, motivos: motivos, por: dec.por || '', fecha: dec.fecha || '', revisados: todos.map(tkInfo), procede: ts.map(function (t) { return t.id; }) };
           revisados++;
+          estado[k] = { rev: rev, procede: rev.procede };
           if (ts.length < 2) { descartados.push({ clave: clave, nombre: String(todos[0].raw.cliente).trim().toUpperCase(), revision: rev }); return; }
         }
         var ctas = []; ts.forEach(function (t) { if (t.cuenta && ctas.indexOf(t.cuenta) < 0) ctas.push(t.cuenta); });
@@ -495,12 +520,13 @@
       reinc.forEach(function (r) { r.tickets.forEach(function (t) { var c = catCorta(t.cat); porCat[c] = (porCat[c] || 0) + 1; }); });
       var sinNombre = ftth.filter(function (t) { return !claveCliente(t.raw.cliente); });
       return { abonados: reinc.length, tickets: nt, ftth: ftth.length, pct: ftth.length ? nt / ftth.length : null, detalle: reinc, porCategoria: porCat, sinNombre: sinNombre, sinCuenta: sinNombre,
-        pendientes: pendientes, descartados: descartados, revisados: revisados };
+        pendientes: pendientes, descartados: descartados, revisados: revisados, estado: estado };
     }
-    GRUPOS.forEach(function (g) {
-      porGrupo[g].reinc = reincidencia(porGrupo[g].lista, g === 'pais' ? 'pais' : 'sgu', 'ftth');
+    ['sgu', 'pais', 'pia', 'otras'].forEach(function (g) {
+      var sub = g === 'pia' || g === 'otras';
+      porGrupo[g].reinc = reincidencia(porGrupo[g].lista, g === 'pais' ? 'pais' : 'sgu', 'ftth', true, sub ? porGrupo.sgu.reinc : null);
       /* reincidencia general: todas las categorías; en el país no hay revisión humana */
-      porGrupo[g].reincGen = reincidencia(porGrupo[g].lista, g === 'pais' ? 'pais' : 'sgu', 'general', g !== 'pais');
+      porGrupo[g].reincGen = reincidencia(porGrupo[g].lista, g === 'pais' ? 'pais' : 'sgu', 'general', g !== 'pais', sub ? porGrupo.sgu.reincGen : null);
     });
     /* cola de revisión: FTTH en SGU total (cubre PIA y otras unidades) y País; general solo en SGU */
     var revisadosLista = [];
@@ -671,10 +697,10 @@
       sgu: 'Título contiene "' + cfg.sguMarker + '"',
       pais: 'Título NO contiene "' + cfg.sguMarker + '"'
     };
-    var nomMeses = meses.map(function (m) { return MESES[+m.slice(5) - 1] + ' ' + m.slice(0, 4); }).join(', ');
+    var nomMeses = 'del ' + fmtDate(ini) + ' al ' + fmtDate(ultimoDia);
     function fdt(x) { if (x === null || x === undefined) return ''; var p = partsFromSerial(x); return pad(p.d) + '/' + pad(p.mo) + '/' + p.y + ' ' + pad(p.h) + ':' + pad(p.mi); }
-    var filtroPeriodoGLPI = 'GLPI: tickets con "Fecha de apertura" en ' + nomMeses + ' y hasta la descarga (' + fdt(FD) + ').';
-    var filtroPeriodoTip = 'Tipificador: filas con "Fecha" en ' + nomMeses + ' y hasta la descarga.';
+    var filtroPeriodoGLPI = 'GLPI: tickets con "Fecha de apertura" ' + nomMeses + (corteEsFin ? '' : ' (hasta la descarga, ' + fdt(DESC) + ')') + '.';
+    var filtroPeriodoTip = 'Tipificador: filas con "Fecha" ' + nomMeses + (corteEsFin ? '' : ' (hasta la descarga)') + '.';
     var filtroSA = 'Tipificador: "Sucursal" = "' + cfg.sucursal + '".';
     var filtroDup = 'Duplicados excluidos: misma Categoría, Subcategoría, Motivo, Fecha (día) y Cédula de una fila anterior (' + tipDuplicados.length + ' filas).';
     var COLS_T = ['ID', 'Título', 'Estado', 'Categoría (homologada)', 'Grupo técnico (unificado)', 'Solicitante', 'Apertura', 'Solución', 'Cierre', 'Tiempo de resolución'];
@@ -755,7 +781,7 @@
           e.titulo = 'Reincidencia de fallas FTTH · ' + et; e.valor = RI.abonados + ' abonados · ' + RI.tickets + ' tickets';
           e.definicion = 'Clientes (columna "Nombre Cliente" de GLPI) con 2 o más tickets FTTH dentro del mismo grupo en el período. La cuenta que se muestra sale del título.';
           e.filtros = [filtroPeriodoGLPI, et + ': ' + DEF_G[g] + '.', 'Categoría contiene "FTTH" y no dice "Cobranzas Masivas" (esas nunca cuentan).', reincFuera.length ? 'No cuentan: ' + (cfg.reincExcluir || []).join('; ') + '.' : 'Cuentan todas las categorías FTTH.', 'Cliente repetido: mismo "Nombre Cliente" (sin distinguir mayúsculas, acentos ni signos). Tickets con el nombre vacío o con error ("#NAME?") no entran (' + RI.sinNombre.length + ').', 'Cuenta mostrada: el último número del título "... - NOMBRE - CÉDULA - CUENTA" (si la cédula trae sufijo, p. ej. 18524490-001, el sufijo no es la cuenta); si el título no la trae, se toma de la descripción.'];
-          e.filtros.push('Revisión humana: si un cliente tiene cédulas distintas, contratos distintos, o la cédula (6 a 8 dígitos) o el contrato (1 a 6 dígitos) no se identifican con seguridad, un operador decide qué tickets proceden. Revisados en este grupo: ' + RI.revisados + ' (' + RI.descartados.length + ' descartados); pendientes: ' + RI.pendientes.length + ' (no cuentan hasta revisarse).');
+          e.filtros.push((g === 'pia' || g === 'otras') ? 'Revisión humana: se usa la de SGU total (lo decidido en SGU vale para este grupo; los clientes pendientes en SGU no cuentan).' : 'Revisión humana: si un cliente tiene cédulas distintas, contratos distintos, o la cédula (6 a 8 dígitos) o el contrato (1 a 6 dígitos) no se identifican con seguridad, un operador decide qué tickets proceden. Revisados en este grupo: ' + RI.revisados + ' (' + RI.descartados.length + ' descartados); pendientes: ' + RI.pendientes.length + ' (no cuentan hasta revisarse).');
           e.pasos = ['Tickets FTTH que cuentan: ' + RI.ftth + '.', 'Clientes con 2 o más tickets (después de la revisión): ' + RI.abonados + ', que suman ' + RI.tickets + ' tickets.', 'Porcentaje: ' + RI.tickets + ' ÷ ' + RI.ftth + ' = ' + pct(RI.pct) + '.'];
           e.registros = [{ titulo: 'Clientes reincidentes', cols: ['Nombre Cliente', 'Cédula (título)', 'Cuenta (título)', 'Ticket', 'Categoría', 'Estado', 'Revisión'], filas: RI.detalle.reduce(function (a, d) { return a.concat(d.tickets.map(function (t) { return [d.nombre, t.cedula, t.cuenta, t.id, t.cat, t.estado, d.revision ? 'Procede (' + d.revision.por + ')' : 'No requirió']; })); }, []) }].concat(RI.descartados.length ? [{ titulo: 'Descartados en la revisión', cols: ['Nombre Cliente', 'Tickets', 'Revisado por'], filas: RI.descartados.map(function (d) { return [d.nombre, d.revision.revisados.map(function (t) { return t.id; }).join(', '), d.revision.por]; }) }] : []).concat(RI.sinNombre.length ? [{ titulo: 'Tickets sin "Nombre Cliente" (no entran)', cols: ['Ticket', 'Título', 'Nombre Cliente'], filas: RI.sinNombre.map(function (t) { return [t.id, t.raw.titulo, t.raw.cliente || '']; }) }] : []); break;
         case 'reincGen':
@@ -763,7 +789,7 @@
           e.titulo = 'Reincidencia general (todas las categorías) · ' + et; e.valor = RG.abonados + ' clientes · ' + RG.tickets + ' tickets';
           e.definicion = 'Clientes (columna "Nombre Cliente" de GLPI) con 2 o más tickets de cualquier categoría, sin excepción, dentro del mismo grupo en el período.';
           e.filtros = [filtroPeriodoGLPI, et + ': ' + DEF_G[g] + '.', 'Todas las categorías, sin excepción (incluye facturación, reembolso, cambio de plan y Cobranzas Masivas).', 'Cliente repetido: mismo "Nombre Cliente" (sin distinguir mayúsculas, acentos ni signos). Tickets con el nombre vacío o con error no entran (' + RG.sinNombre.length + ').',
-            g === 'pais' ? 'País: sin revisión humana (todos los clientes repetidos cuentan).' : 'Revisión humana (solo SGU): cédulas distintas, contratos distintos, o cédula/contrato sin identificar con seguridad. Revisados: ' + RG.revisados + ' (' + RG.descartados.length + ' descartados); pendientes: ' + RG.pendientes.length + '. Si la revisión de fallas FTTH ya decidió sobre los mismos tickets, se usa esa decisión.'];
+            g === 'pais' ? 'País: sin revisión humana (todos los clientes repetidos cuentan).' : (g === 'pia' || g === 'otras') ? 'Revisión humana: se usa la de SGU total.' : 'Revisión humana (solo SGU): cédulas distintas, contratos distintos, o cédula/contrato sin identificar con seguridad. Revisados: ' + RG.revisados + ' (' + RG.descartados.length + ' descartados); pendientes: ' + RG.pendientes.length + '. Si la revisión de fallas FTTH ya decidió sobre los mismos tickets, se usa esa decisión.'];
           e.pasos = ['Tickets del grupo: ' + RG.ftth + '.', 'Clientes con 2 o más tickets' + (g === 'pais' ? '' : ' (después de la revisión)') + ': ' + RG.abonados + ', que suman ' + RG.tickets + ' tickets.', 'Porcentaje: ' + RG.tickets + ' ÷ ' + RG.ftth + ' = ' + pct(RG.pct) + '.'];
           e.registros = [{ titulo: 'Clientes reincidentes (todas las categorías)', cols: ['Nombre Cliente', 'Cédula (título)', 'Cuenta (título)', 'Ticket', 'Categoría', 'Estado', 'Revisión'], filas: RG.detalle.reduce(function (a, d) { return a.concat(d.tickets.map(function (t) { return [d.nombre, t.cedula, t.cuenta, t.id, t.cat, t.estado, d.revision ? 'Procede (' + d.revision.por + ')' : 'No requirió']; })); }, []) }]; break;
         case 'upgrades': case 'sva':
@@ -861,14 +887,26 @@
       };
     });
 
+    var per = (function () {
+      var p = partsFromSerial(ini), q = partsFromSerial(ultimoDia), varios = p.y !== q.y;
+      var nm = meses.map(function (m) { return MESES[+m.slice(5) - 1] + (varios ? ' ' + m.slice(0, 4) : ''); });
+      var nombre = nm.length === 1 ? nm[0] : (nm.length === 2 ? nm[0] + ' y ' + nm[1] : nm[0] + ' a ' + nm[nm.length - 1]);
+      var finMes = partsFromSerial(ultimoDia + 1).d === 1;
+      var sufijo = p.d === 1 && finMes ? '' : (meses.length === 1 ? ' (' + p.d + ' al ' + q.d + ')' : ' (del ' + fmtDM(ini) + ' al ' + fmtDM(ultimoDia) + ')');
+      return { nombre: nombre, anio: varios ? '' : q.y, sufijo: sufijo };
+    })();
     return {
       cfg: cfg,
-      periodo: MESES[fp.mo - 1], anio: fp.y,
-      meses: meses,
-      periodoTxt: meses.length === 1 && meses[0] === mesFD ? MESES[fp.mo - 1] + ' (1 al ' + fp.d + ')' : meses.map(function (m) { return MESES[+m.slice(5) - 1]; }).join(', ').replace(/, ([^,]*)$/, ' y $1') + ' (hasta el ' + fmtDM(FD) + ')',
-      corteTxt: (function () { var h = fp.h % 12 === 0 ? 12 : fp.h % 12; return h + (fp.mi ? ':' + pad(fp.mi) : '') + (fp.h < 12 ? ' AM ' : ' PM ') + pad(fp.d) + '-' + pad(fp.mo) + '-' + fp.y; })(),
-      corteFecha: fmtDate(FD),
-      fuentesTxt: 'GLPI y Tipificador (' + (meses.length === 1 ? 'solo ' : '') + meses.map(function (m) { return MESES[+m.slice(5) - 1].toLowerCase(); }).join(', ').replace(/, ([^,]*)$/, ' y $1') + ')',
+      periodo: per.nombre, anio: per.anio,
+      meses: meses, inicio: ini, fin: fin, ultimoDia: ultimoDia, corteEsFin: corteEsFin,
+      periodoTxt: per.nombre + per.sufijo,
+      periodoLargo: per.nombre + (per.anio ? ' ' + per.anio : '') + per.sufijo,
+      corteTxt: fmtDate(ultimoDia),
+      corteFecha: fmtDate(ultimoDia),
+      descargaTxt: fdt(DESC),
+      descargaArchivo: pad(dp.d) + '-' + pad(dp.mo) + '-' + dp.y + ' ' + pad(dp.h) + 'h' + pad(dp.mi),
+      fuentesTxt: 'GLPI y Tipificador · descarga ' + fdt(DESC),
+      rangoTxt: nomMeses,
       ventana: { desde: fmtDate(wIni), hasta: fmtDate(wFin - 1), corta: partsFromSerial(wIni).d + '–' + fmtDM(wFin - 1) },
       etiquetas: ETIQUETAS, etiquetasLargas: ETIQUETAS_LARGAS,
       fijos: fijos, g: resumenGrupos, comparativos: comparativos,
@@ -902,7 +940,7 @@
     parseDate: parseDate, serialFromParts: serialFromParts, partsFromSerial: partsFromSerial,
     fmtD: fmtD, fmtPalabras: fmtPalabras, fmtDate: fmtDate, miles: miles, pct: pct, tickets: tickets, catCorta: catCorta,
     cuentaDeTitulo: cuentaDeTitulo, direccionPlan: direccionPlan, modaPromedio: modaPromedio, celdaTiempo: celdaTiempo, homologar: homologar,
-    norm: norm, grpKey: grpKey, grpLabel: grpLabel, MESES: MESES
+    norm: norm, grpKey: grpKey, grpLabel: grpLabel, MESES: MESES, esPleyArriba: esPleyArriba, claveCliente: claveCliente
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.PIAEngine = api;
 })(typeof window !== 'undefined' ? window : this);
