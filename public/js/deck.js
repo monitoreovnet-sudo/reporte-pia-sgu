@@ -179,7 +179,7 @@
       card(s, cx, y + 3 * (ch + gy), cw, ch, { label: 'Promedio', chip: b, value: fmtD(G[b].prom), size: 18, sub: cmp && cmp.ganador ? 'Diferencia: ' + cmp.valor + ' a favor de ' + L[cmp.ganador] : '' });
     }
     var leyenda = 'M: moda (tiempo más repetido, redondeado a la hora) · P: promedio · Solo tickets resueltos o cerrados.';
-    var leyendaGrupo = leyenda + ' (+): reúne varios grupos de GLPI; el grupo participó en la solución, no necesariamente solo.';
+    var leyendaGrupo = leyenda + ' Grupo: uno por ticket. Si la última línea es Cobranzas Masivas, Cobranzas Masivas; si no, la última línea que esté en la lista de grupos del reporte; si ninguna está, la última línea.';
 
     /* ---------- Canal de creación (barras 100 % apiladas con porcentajes) ---------- */
     function barra100(s, x, y, w, h, titulo, partes, decimales) {

@@ -26,10 +26,10 @@
       'FTTH > Sin conexión',
       'FTTH > Visita técnica'
     ],
-    grupos: ['ATC No Presencial', 'Cobranzas Masivas (+)', 'Contratista San Agustín (+)', 'Tesoreria Masivos', 'Reparación (+)', 'Activaciones (+)', 'UDN Caracas (+)', 'COR (+)'],
+    grupos: ['ATC No Presencial', 'Cobranzas Masivas', 'Contratista San Agustín', 'Tesoreria Masivos', 'Coordinación de reparación Técnico FTTX', 'Activaciones', 'UDN-CARACAS', 'COR', '(Sin grupo asignado)'],
     /** Categorías FTTH que NO cuentan para reincidencias (se cambia desde el filtro del Informe). */
     reincExcluir: ['Cobranzas Masivas > FTTH > Ajuste de facturación', 'Cobranzas Masivas > FTTH > Reembolso', 'FTTH > Cambio de plan'],
-    gruposNegrita: ['ATC No Presencial', 'Cobranzas Masivas (+)', 'Contratista San Agustín (+)', 'Tesoreria Masivos']
+    gruposNegrita: ['ATC No Presencial', 'Cobranzas Masivas', 'Contratista San Agustín', 'Tesoreria Masivos']
   };
 
   var GRUPOS = ['pia', 'otras', 'sgu', 'pais'];
@@ -51,27 +51,33 @@
   function danado(s) { return /[ÃÂ�]/.test(String(s || '')); }
   /** Categoría homologada: quita ">" o "<" sobrantes al final. */
   function homologar(c) { return String(c == null ? '' : c).trim().replace(/\s*[<>]+\s*$/, ''); }
-  /** Grupo técnico: líneas unidas con " · " (valor exacto del campo). */
-  function grpLineas(g) { return String(g == null ? '' : g).split(/\r?\n|<br\s*\/?>|\s+[·+]\s+/i).map(function (x) { return x.trim(); }).filter(Boolean); }
-  /** Unificación de grupos técnicos, en este orden (gana la primera regla que aplica):
-   *  1) termina en "Cobranzas Masivas" → "Cobranzas Masivas (+)"   2) dice "reparación" → "Reparación (+)"
-   *  3) dice "activaciones" → "Activaciones (+)"   4) dice "UDN Caracas" → "UDN Caracas (+)"   5) dice "COR" → "COR (+)"
-   *  6) dice "Contratista San Agustín" → "Contratista San Agustín (+)"
-   *  El "(+)" indica que el grupo reúne varios grupos de GLPI: participó en la solución, no necesariamente solo.
-   *  Lo demás queda con su nombre (varias líneas unidas con " · "). */
-  function grpLabel(g) {
+  /** Grupo técnico: líneas del campo "Asignado a - Grupo de técnicos" (igual que la fórmula de auditoría en Excel:
+   *  se quitan CHAR(13), CHAR(160) pasa a espacio, se divide por salto de línea y se aplica ESPACIOS a cada línea). */
+  function grpLineas(g) { return String(g == null ? '' : g).replace(/\r/g, '').replace(/\u00a0/g, ' ').split(/\n|<br\s*\/?>/i).map(function (x) { return x.replace(/ +/g, ' ').trim(); }).filter(Boolean); }
+  /** Comparación de líneas como en Excel ("=" y COINCIDIR): sin distinguir mayúsculas, pero sí acentos y guiones. */
+  function grpIgual(a, b) { return String(a).toLowerCase() === String(b).toLowerCase(); }
+  var GRUPOS_PRIORIDAD = ['ATC No Presencial', 'Cobranzas Masivas', 'Contratista San Agustín', 'Tesoreria Masivos', 'Coordinación de reparación Técnico FTTX', 'Activaciones', 'UDN-CARACAS', 'COR'];
+  var SIN_GRUPO = '(Sin grupo asignado)';
+  function grpAsignar(g) {
     var lin = grpLineas(g);
-    if (!lin.length) return '';
-    var k = hkey(lin.join(' ')), last = hkey(lin[lin.length - 1]);
-    if (/(^| )cobranzas masivas$/.test(last)) return 'Cobranzas Masivas (+)';
-    if (/(^| )reparacion( |$)/.test(k)) return 'Reparación (+)';
-    if (/(^| )activaciones( |$)/.test(k)) return 'Activaciones (+)';
-    if (/(^| )udn caracas( |$)/.test(k)) return 'UDN Caracas (+)';
-    if (/(^| )cor( |$)/.test(k)) return 'COR (+)';
-    if (/(^| )contratista san agustin( |$)/.test(k)) return 'Contratista San Agustín (+)';
-    return lin.join(' · ');
+    if (!lin.length) return { label: SIN_GRUPO, paso: 4, regla: 'Paso 4 · El campo está vacío → ' + SIN_GRUPO };
+    var last = lin[lin.length - 1];
+    if (grpIgual(last, 'Cobranzas Masivas')) return { label: 'Cobranzas Masivas', paso: 1, regla: 'Paso 1 · La última línea es "Cobranzas Masivas"' };
+    for (var i = lin.length - 1; i >= 0; i--) {
+      var j = -1; for (var q = 0; q < GRUPOS_PRIORIDAD.length; q++) if (grpIgual(lin[i], GRUPOS_PRIORIDAD[q])) { j = q; break; }
+      if (j >= 0) return { label: GRUPOS_PRIORIDAD[j], paso: 2, regla: 'Paso 2 · La última línea que está en la lista es "' + GRUPOS_PRIORIDAD[j] + '"' };
+    }
+    return { label: last, paso: 3, regla: 'Paso 3 · Ninguna línea está en la lista → la última línea ("' + last + '")' };
   }
+  function grpLabel(g) { return grpAsignar(g).label; }
   function grpKey(g) { return norm(grpLabel(g)); }
+  function grpRegla(g) { return grpAsignar(g).regla; }
+  var REGLAS_GRUPO = [
+    'Si la última línea del grupo es "Cobranzas Masivas", el ticket es de Cobranzas Masivas.',
+    'Si no, se buscan las líneas que son exactamente uno de estos grupos (sin distinguir mayúsculas): ' + GRUPOS_PRIORIDAD.join(', ') + '. El ticket es de la última que aparece.',
+    'Si ninguna línea está en esa lista, el ticket es de la última línea, sea cual sea.',
+    'Si el campo está vacío, el ticket queda en "' + SIN_GRUPO + '".'
+  ];
   function catCorta(c) { return String(c).replace(/^Cobranzas Masivas > FTTH > /i, '').replace(/^FTTH > /i, ''); }
   function soloDigitos(v) {
     if (v === null || v === undefined || v === '') return '';
@@ -712,7 +718,7 @@
     var oc = {}, og = {}, of = {};
     T.forEach(function (t) {
       var c = oc[t.catK] || (oc[t.catK] = { label: t.cat || '(Sin categoría)', key: t.catK, sgu: 0, total: 0 }); c.total++; if (t.sgu) c.sgu++;
-      var g = og[t.grpK] || (og[t.grpK] = { label: t.grpL || '(Sin grupo)', key: t.grpK, sgu: 0, total: 0 }); g.total++; if (t.sgu) g.sgu++;
+      var g = og[t.grpK] || (og[t.grpK] = { label: t.grpL || SIN_GRUPO, key: t.grpK, sgu: 0, total: 0 }); g.total++; if (t.sgu) g.sgu++;
       if (esReincidible(t.catK)) { var f = of[t.catK] || (of[t.catK] = { label: t.cat, key: t.catK, sgu: 0, total: 0 }); f.total++; if (t.sgu) f.sgu++; }
     });
     function lista(o) { return Object.keys(o).map(function (k) { return o[k]; }).filter(function (x) { return x.key; }).sort(function (a, b) { return b.sgu - a.sgu || b.total - a.total || a.label.localeCompare(b.label); }); }
@@ -730,7 +736,7 @@
     var filtroPeriodoTip = 'Tipificador: filas con "Fecha" ' + nomMeses + (corteEsFin ? '' : ' (hasta la descarga)') + '.';
     var filtroSA = 'Tipificador: "Sucursal" = "' + cfg.sucursal + '".';
     var filtroDup = 'Duplicados excluidos: misma Categoría, Subcategoría, Motivo, Fecha (día) y Cédula de una fila anterior (' + tipDuplicados.length + ' filas).';
-    var COLS_T = ['ID', 'Título', 'Estado', 'Categoría (homologada)', 'Grupo técnico (unificado)', 'Solicitante', 'Apertura', 'Solución', 'Cierre', 'Tiempo de resolución'];
+    var COLS_T = ['ID', 'Título', 'Estado', 'Categoría (homologada)', 'Grupo técnico (asignado)', 'Solicitante', 'Apertura', 'Solución', 'Cierre', 'Tiempo de resolución'];
     function filaT(t) { return [t.id, t.raw.titulo, t.raw.estado, t.cat, t.grpL, t.raw.solicitante, fdt(t.raw.apertura), fdt(t.raw.solucion), fdt(t.raw.cierre), t.dur === null ? '' : fmtD(t.dur)]; }
     var COLS_P = ['ID', 'Fecha', 'Cédula', 'Categoría', 'Subcategoría', 'Motivo', 'Estatus', 'Ticket GLPI'];
     function filaP(r) { return [r.id, r.fecha === null ? '' : fmtDate(r.fecha), r.cedula, r.categoria, r.subcategoria, r.motivo, r.estatus, r.ticket]; }
@@ -740,6 +746,31 @@
       if (lab === 'Otro') return function (t) { return claves.indexOf(t[campo]) < 0; };
       var k = campo === 'grpK' ? grpKey(lab) : norm(lab);
       return function (t) { return t[campo] === k; };
+    }
+    /* asignación de tickets a los grupos técnicos (tabla 5.2) */
+    var _asig = null;
+    function asignacionGrupos() {
+      if (_asig) return _asig;
+      var orden = {}; gruposU.forEach(function (l, i) { orden[grpKey(l)] = i; });
+      var M = {}, det = [], sinG = 0, enFilas = 0, resueltos = 0, unif = {};
+      T.forEach(function (t) {
+        var orig = grpLineas(t.raw.grupo).join(' · '), fila = orden.hasOwnProperty(t.grpK) && t.grpK ? t.grpL : 'Otro';
+        var seg = t.pia ? 'pia' : t.sgu ? 'otras' : 'pais', entra = t.res && t.dur !== null;
+        if (!orig) sinG++;
+        if (fila !== 'Otro') enFilas++;
+        if (entra) resueltos++;
+        if (t.grpK) unif[t.grpK] = 1;
+        var m = M[orig] || (M[orig] = { original: orig || '(sin grupo)', regla: grpRegla(t.raw.grupo), unificado: t.grpL || '(sin grupo)', fila: fila, ord: fila === 'Otro' ? 999 : orden[t.grpK], pia: 0, otras: 0, pais: 0, resueltos: 0, n: 0 });
+        m[seg]++; m.n++; if (entra) m.resueltos++;
+        det.push([{ pia: 'PIA', otras: 'SGU otras unidades', pais: 'País' }[seg], t.id, t.raw.titulo, orig || '(sin grupo)', m.regla, t.grpL || '(sin grupo)', fila, t.raw.estado, fdt(t.raw.solucion), entra ? 'Sí' : (t.res ? 'No: sin fecha de solución' : 'No: no está resuelto'), t.dur === null ? '' : fmtD(t.dur)]);
+      });
+      var mapa = Object.keys(M).map(function (k) { return M[k]; }).sort(function (a, b) { return a.ord - b.ord || b.n - a.n || a.original.localeCompare(b.original); });
+      _asig = {
+        mapa: mapa, sinGrupo: sinG, enFilas: enFilas, resueltos: resueltos, unificados: Object.keys(unif).length,
+        colsMapa: ['Grupo en GLPI', 'Paso que aplica', 'Grupo asignado', 'Fila de la tabla', 'Tickets PIA', 'Tickets SGU otras unidades', 'Tickets País', 'Resueltos (entran al tiempo)'],
+        detalle: { titulo: 'Asignación ticket por ticket', cols: ['Columna', 'ID', 'Título', 'Grupo en GLPI', 'Paso que aplica', 'Grupo asignado', 'Fila de la tabla', 'Estado', 'Solución', 'Entra al tiempo', 'Tiempo de resolución'], filas: det }
+      };
+      return _asig;
     }
     function textoMP(mp) {
       if (!mp.n) return ['No hay tickets resueltos: la celda muestra "-".'];
@@ -847,6 +878,14 @@
             e.pasos = ['En el Tipificador: ' + V.tip + '.', 'En GLPI: ' + V.glpi.length + (V.glpi.length ? ' (' + V.glpi.join(', ') + ')' : '') + '.', 'Total: ' + V.n + '.'];
           }
           break;
+        case 'grupos':
+          var GA = asignacionGrupos();
+          e.titulo = 'Cómo se asignan los tickets a los grupos técnicos'; e.valor = miles(GA.resueltos) + ' tickets resueltos en la tabla';
+          e.definicion = 'La tabla "Tiempo de resolución por grupo técnico" toma cada ticket de GLPI del período, lee las líneas de su columna "Asignado a - Grupo de técnicos", le asigna un solo grupo con los pasos de prioridad y lo pone en la fila de ese grupo. Si el grupo no es una de las filas seleccionadas en el filtro, va a "Otro". El tiempo solo usa tickets resueltos.';
+          e.filtros = [filtroPeriodoGLPI, 'Columnas: PIA = ' + DEF_G.pia + '; SGU otras unidades = ' + DEF_G.otras + '; País = ' + DEF_G.pais + '.', 'Grupo técnico: columna "Asignado a - Grupo de técnicos", leída línea por línea (cada línea es un grupo de GLPI).', 'Asignación, en este orden: ' + REGLAS_GRUPO.map(function (r, i) { return (i + 1) + ') ' + r; }).join(' ') + ' Las líneas se comparan completas, sin distinguir mayúsculas (sí acentos y guiones), igual que la fórmula de auditoría en Excel.', 'Filas de la tabla: ' + gruposU.join(', ') + '. Cualquier otro grupo va a "Otro".', 'Entra al cálculo del tiempo: Estado "Resuelto" o "Cerrado" y con "Fecha de solución".'];
+          e.pasos = ['Tickets del período: ' + miles(T.length) + '.', 'Con grupo técnico: ' + miles(T.length - GA.sinGrupo) + '; sin grupo: ' + miles(GA.sinGrupo) + ' (quedan en "' + SIN_GRUPO + '").', 'Combinaciones distintas del campo en GLPI: ' + miles(GA.mapa.length) + ', que se asignan a ' + miles(GA.unificados) + ' grupos.', 'Tickets en las filas de la tabla: ' + miles(GA.enFilas) + '; en "Otro": ' + miles(T.length - GA.enFilas) + '.', 'Resueltos que entran al tiempo: ' + miles(GA.resueltos) + ' (los demás no están resueltos o no tienen fecha de solución).'];
+          e.registros = [{ titulo: 'Grupos de GLPI y su fila en la tabla', cols: GA.colsMapa, filas: GA.mapa.map(function (m) { return [m.original, m.regla, m.unificado, m.fila, m.pia, m.otras, m.pais, m.resueltos]; }) }, GA.detalle];
+          break;
         case 'cel': case 'prodcel':
           var tabla = x.k === 'prodcel' ? 'productividad' : x.t, campo = tabla === 'tiempoGrupo' ? 'grpK' : 'catK';
           var filas = tabla === 'productividad' ? productividad : (tabla === 'tiempoGrupo' ? tiempoGrupo : tiempoCategoria);
@@ -861,8 +900,8 @@
           var Lc = row.total ? L : L.filter(filtroCampo(campo, claves, row.label));
           var nombreTabla = tabla === 'productividad' ? 'Productividad por categoría' : (tabla === 'tiempoGrupo' ? 'Tiempo de resolución por grupo técnico' : 'Tiempo de resolución por categoría');
           e.titulo = nombreTabla + ' · ' + row.label + ' · ' + et;
-          e.filtros = [filtroPeriodoGLPI, et + ': ' + DEF_G[g] + '.', row.total ? 'Fila Total: todos los tickets del grupo.' : (row.label === 'Otro' ? (campo === 'grpK' ? 'Grupo técnico' : 'Categoría') + ' fuera de la lista de la tabla.' : (campo === 'grpK' ? 'Grupo técnico (unificado)' : 'Categoría (homologada)') + ' = "' + row.label + '".')];
-          if (campo === 'grpK') e.filtros.push('Grupos unificados: termina en Cobranzas Masivas → Cobranzas Masivas (+); reparación → Reparación (+); activaciones → Activaciones (+); UDN Caracas → UDN Caracas (+); COR → COR (+); Contratista San Agustín → Contratista San Agustín (+).');
+          e.filtros = [filtroPeriodoGLPI, et + ': ' + DEF_G[g] + '.', row.total ? 'Fila Total: todos los tickets del grupo.' : (row.label === 'Otro' ? (campo === 'grpK' ? 'Grupo técnico' : 'Categoría') + ' fuera de la lista de la tabla.' : (campo === 'grpK' ? 'Grupo técnico (asignado)' : 'Categoría (homologada)') + ' = "' + row.label + '".')];
+          if (campo === 'grpK') e.filtros.push('Asignación del grupo: ' + REGLAS_GRUPO.map(function (r, n) { return (n + 1) + ') ' + r; }).join(' '));
           else e.filtros.push('Categorías homologadas: se quita ">" o "<" al final.');
           if (tabla === 'productividad') {
             var LsP = Lc.filter(function (t) { return t.res; });
@@ -954,7 +993,8 @@
       fuentesTxt: 'GLPI y Tipificador · descarga ' + fdt(DESC),
       rangoTxt: nomMeses,
       /* tickets del período sin grupo técnico asignado (descarga desde la página Grupos técnicos) */
-      sinGrupo: (function () { var L0 = T.filter(function (t) { return !String(t.grpL || '').trim(); }); return { titulo: 'Tickets sin grupo técnico asignado', cols: ['Grupo'].concat(COLS_T), filas: L0.map(function (t) { return [t.pia ? 'PIA' : t.sgu ? 'SGU otras unidades' : 'País'].concat(filaT(t)); }) }; })(),
+      asignacionGrupos: asignacionGrupos, reglasGrupo: REGLAS_GRUPO,
+      sinGrupo: (function () { var L0 = T.filter(function (t) { return !grpLineas(t.raw.grupo).length; }); return { titulo: 'Tickets sin grupo técnico asignado', cols: ['Grupo'].concat(COLS_T), filas: L0.map(function (t) { return [t.pia ? 'PIA' : t.sgu ? 'SGU otras unidades' : 'País'].concat(filaT(t)); }) }; })(),
       seleccionTxt: seleccionTxt,
       ventana: { desde: fmtDate(wIni), hasta: fmtDate(wFin - 1), corta: partsFromSerial(wIni).d + '–' + fmtDM(wFin - 1) },
       etiquetas: ETIQUETAS, etiquetasLargas: ETIQUETAS_LARGAS,
@@ -989,7 +1029,7 @@
     parseDate: parseDate, serialFromParts: serialFromParts, partsFromSerial: partsFromSerial,
     fmtD: fmtD, fmtPalabras: fmtPalabras, fmtDate: fmtDate, miles: miles, pct: pct, tickets: tickets, catCorta: catCorta,
     cuentaDeTitulo: cuentaDeTitulo, direccionPlan: direccionPlan, modaPromedio: modaPromedio, celdaTiempo: celdaTiempo, homologar: homologar,
-    norm: norm, grpKey: grpKey, grpLabel: grpLabel, MESES: MESES, esPleyArriba: esPleyArriba, claveCliente: claveCliente
+    norm: norm, grpKey: grpKey, grpLabel: grpLabel, grpRegla: grpRegla, GRUPOS_PRIORIDAD: GRUPOS_PRIORIDAD, SIN_GRUPO: SIN_GRUPO, MESES: MESES, esPleyArriba: esPleyArriba, claveCliente: claveCliente
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.PIAEngine = api;
 })(typeof window !== 'undefined' ? window : this);

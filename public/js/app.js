@@ -83,7 +83,7 @@
 
   /* ================= configuración de cálculo ================= */
   function defaultsFiltros() {
-    return { version: 4, categorias: E.DEFAULTS.categorias.slice(), grupos: E.DEFAULTS.grupos.slice(), reincExcluir: E.DEFAULTS.reincExcluir.slice(),
+    return { version: 5, categorias: E.DEFAULTS.categorias.slice(), grupos: E.DEFAULTS.grupos.slice(), reincExcluir: E.DEFAULTS.reincExcluir.slice(),
       sucursal: E.DEFAULTS.sucursal, sguMarker: E.DEFAULTS.sguMarker, piaSolicitante: E.DEFAULTS.piaSolicitante };
   }
   function filtros() { return Object.assign(defaultsFiltros(), S.filtros || {}); }
@@ -392,7 +392,7 @@
   /* ================= informe (estilo Power BI) ================= */
   var FILTROS = [
     { id: 'categorias', kind: 'categorias', title: 'Categorías', noun: 'categorías', note: 'Aplica a tiempos por categoría y productividad. Las no seleccionadas se suman en "Otro".' },
-    { id: 'grupos', kind: 'grupos', title: 'Grupos técnicos', noun: 'grupos', note: 'Aplica a tiempos por grupo técnico. Los no seleccionados se suman en "Otro". Los grupos se unifican: termina en Cobranzas Masivas → Cobranzas Masivas (+); dice reparación → Reparación (+); activaciones → Activaciones (+); UDN Caracas → UDN Caracas (+); COR → COR (+); Contratista San Agustín → Contratista San Agustín (+). El (+) indica que el grupo reúne varios grupos de GLPI que participaron en la solución.' },
+    { id: 'grupos', kind: 'grupos', title: 'Grupos técnicos', noun: 'grupos', note: 'Aplica a tiempos por grupo técnico. Los no seleccionados se suman en "Otro". Cada ticket se asigna a un solo grupo: 1) si la última línea es Cobranzas Masivas, es de Cobranzas Masivas; 2) si no, gana la última línea que sea ATC No Presencial, Cobranzas Masivas, Contratista San Agustín, Tesoreria Masivos, Coordinación de reparación Técnico FTTX, Activaciones, UDN-CARACAS o COR; 3) si ninguna está en la lista, la última línea; 4) sin grupo: (Sin grupo asignado).' },
     { id: 'reincExcluir', kind: 'ftth', invert: true, title: 'Problemas de reincidencia', noun: 'categorías FTTH', note: 'Marcadas: cuentan para reincidencia. Desmarcadas: no cuentan (por defecto, cambio de plan). Lo que dice Cobranzas Masivas (facturación, reembolso) nunca cuenta.' }
   ];
   function keyerDe(d) { return d.kind === 'grupos' ? E.grpKey : E.norm; }
@@ -434,6 +434,30 @@
   function dias(secs) { return secs >= 86400 ? (Math.round(secs / 8640) / 10).toLocaleString('es-VE') + ' d' : Math.round(secs / 3600) + ' h'; }
   function upTxt(g) { var u = S.R.g[g].upgrades, v = S.R.g[g].sva; return { v: num(u.n) + ' · ' + num(v.n), u: 'upgrades · SVA', n: (!u.n && u.cambiosPlan && u.bajas === u.cambiosPlan) ? u.cambiosPlan + ' cambio(s) de plan, todos a un plan menor' : num(u.cambiosPlan) + ' cambios de plan en GLPI' }; }
 
+  /* Página Grupos técnicos: cómo se seleccionan los tickets de cada fila de la tabla */
+  function asignacionGruposHtml(R) {
+    var A = R.asignacionGrupos(), filas = {}, orden = [];
+    A.mapa.forEach(function (m) {
+      var f = filas[m.fila] || (filas[m.fila] = (orden.push(m.fila), { grupos: [], pia: 0, otras: 0, pais: 0, resueltos: 0 }));
+      f.grupos.push(m); f.pia += m.pia; f.otras += m.otras; f.pais += m.pais; f.resueltos += m.resueltos;
+    });
+    var pasos = '<ol class="asig-pasos">' +
+      '<li>Entran los tickets de GLPI con fecha de apertura ' + esc(R.rangoTxt) + ' (' + num(A.mapa.reduce(function (a, m) { return a + m.n; }, 0)) + ' tickets).</li>' +
+      '<li>Cada ticket va a su columna según el título y el solicitante: PIA, SGU otras unidades o País.</li>' +
+      '<li>Se leen las líneas de su columna <b>"Asignado a - Grupo de técnicos"</b> de GLPI; cada línea es un grupo.</li>' +
+      '<li>Se le asigna un solo grupo, con estos pasos en orden:<ol type="a">' + R.reglasGrupo.map(function (r) { return '<li>' + esc(r) + '</li>'; }).join('') + '</ol>Cada línea se compara completa, sin distinguir mayúsculas (sí acentos y guiones). En este período, ' + num(A.sinGrupo) + ' tickets no tienen grupo.</li>' +
+      '<li>Si el grupo asignado es una fila de la tabla (las que están marcadas en Filtros), el ticket va a esa fila. Si no, va a <b>"Otro"</b>.</li>' +
+      '<li>Solo los tickets en estado Resuelto o Cerrado y con fecha de solución entran al tiempo (' + num(A.resueltos) + '). Esos son los "Tickets resueltos" de la tabla.</li></ol>';
+    var resumen = '<div class="tbl"><table class="data"><thead><tr><th>Fila de la tabla</th><th>Combinaciones de GLPI que reúne</th><th>Tickets PIA</th><th>Tickets SGU otras unidades</th><th>Tickets País</th><th>Resueltos (entran al tiempo)</th></tr></thead><tbody>' +
+      orden.map(function (k) { var f = filas[k]; return '<tr><td style="font-weight:700">' + esc(k) + '</td><td class="n">' + num(f.grupos.length) + '</td><td class="n">' + num(f.pia) + '</td><td class="n">' + num(f.otras) + '</td><td class="n">' + num(f.pais) + '</td><td class="n">' + num(f.resueltos) + '</td></tr>'; }).join('') + '</tbody></table></div>';
+    var detalle = S.pdfMode ? '' : '<div class="asig-det"><p class="hint">Abra una fila para ver qué combinaciones del campo de GLPI reúne y qué paso aplicó a cada una.</p>' + orden.map(function (k) {
+      var f = filas[k];
+      return '<details><summary><b>' + esc(k) + '</b> · ' + num(f.grupos.length) + (f.grupos.length === 1 ? ' combinación' : ' combinaciones') + ' de GLPI · ' + num(f.pia + f.otras + f.pais) + ' tickets</summary><div class="tbl"><table class="data list"><thead><tr><th>Grupo en GLPI</th><th>Paso que aplica</th><th>Grupo asignado</th><th>PIA</th><th>SGU otras</th><th>País</th><th>Resueltos</th></tr></thead><tbody>' +
+        f.grupos.map(function (m) { return '<tr><td>' + esc(m.original) + '</td><td style="text-align:left;white-space:normal">' + esc(m.regla) + '</td><td style="text-align:left">' + esc(m.unificado) + '</td><td class="n">' + num(m.pia) + '</td><td class="n">' + num(m.otras) + '</td><td class="n">' + num(m.pais) + '</td><td class="n">' + num(m.resueltos) + '</td></tr>'; }).join('') + '</tbody></table></div></details>';
+    }).join('') + '</div><div class="row" style="margin-top:12px"><button class="btn" id="xAsigGrupo">' + ICONS.down + 'Ver lógica y descargar la asignación ticket por ticket</button><span class="hint">Excel con cada ticket del período: grupo en GLPI, paso que aplicó, grupo asignado, fila de la tabla y si entra al tiempo.</span></div>';
+    return tile('c12 asig', 'Cómo se seleccionan los tickets de cada grupo técnico', 'aplica a la tabla "Tiempo de resolución por grupo técnico"', pasos + resumen + detalle);
+  }
+
   function paginaInforme(i, R, cmpIdx) {
     var G = R.g, F = R.fijos, L = R.etiquetas;
     var head = '<div class="rpage-h"><h2>' + esc(PAGINAS[i]) + (i === 0 ? ' · ' + CMPS[cmpIdx][3] : '') + '</h2><span>' + esc(R.periodoLargo + ' · corte ' + R.corteFecha + ' · ' + (R.responsable || '') + ' · ' + R.fuentesTxt) + '</span></div>';
@@ -460,7 +484,8 @@
     } else if (i === 2) {
       var hg = h4('Grupo técnico', ['Tickets resueltos', 'Moda o promedio']);
       body = tile('c12', 'Tiempo de resolución por grupo técnico', 'M: moda · P: promedio · solo tickets resueltos', table(hg.h1, hg.h2, tiempoRows(R.tiempoGrupo, 'tiempoGrupo'))) +
-        (S.pdfMode ? '' : '<div class="c12 row"><button class="btn" id="xSinGrupo">' + ICONS.down + 'Descargar tickets sin grupo técnico asignado (' + num(R.sinGrupo.filas.length) + ')</button><span class="hint">Excel con los tickets del período que no tienen grupo técnico resolutorio, de todos los grupos (PIA, SGU otras unidades y País).</span></div>');
+        (S.pdfMode ? '' : '<div class="c12 row"><button class="btn" id="xSinGrupo">' + ICONS.down + 'Descargar tickets sin grupo técnico asignado (' + num(R.sinGrupo.filas.length) + ')</button><span class="hint">Excel con los tickets del período que no tienen grupo técnico resolutorio, de todos los grupos (PIA, SGU otras unidades y País).</span></div>') +
+        asignacionGruposHtml(R);
     } else if (i === 3) {
       var hp = h4('Categoría', ['Creados', 'Solucionados']);
       var c = function (v) { return v === null || v === undefined ? '' : E.tickets(v); };
@@ -537,7 +562,7 @@
         (open ? filterList(d, R) : '') + '</div>';
     }).join('');
     return '<aside class="fpane' + (S.fpaneOpen ? '' : ' closed') + '" aria-label="Filtros"><div class="fh"><span>' + ICONS.filter.replace('<svg', '<svg width="15" height="15" style="vertical-align:-2px;margin-right:6px"') + 'Filtros</span><button type="button" id="fToggle" aria-label="' + (S.fpaneOpen ? 'Ocultar filtros' : 'Mostrar filtros') + '">' + (S.fpaneOpen ? '»' : '«') + '</button></div>' +
-      '<div class="fbody">' + cards + '<p class="hint">Por defecto se usan las 10 categorías y los 10 grupos de la especificación. Lo demás se suma en "Otro". Los filtros se guardan para todos los usuarios y se aplican al informe, la presentación y las descargas.</p></div></aside>';
+      '<div class="fbody">' + cards + '<p class="hint">Por defecto se usan las 10 categorías del reporte y los 8 grupos técnicos de la lista de prioridad, más (Sin grupo asignado). Lo demás se suma en "Otro". Los filtros se guardan para todos los usuarios y se aplican al informe, la presentación y las descargas.</p></div></aside>';
   }
   function filterOptions(d, R) {
     var k = keyerDe(d), opts = R.opciones[d.kind].slice(), known = {};
@@ -769,6 +794,7 @@
     saveBlob(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), 'Tickets sin grupo tecnico - ' + nombrePeriodo(R) + '.xlsx');
   }
   document.addEventListener('click', function (ev) { if (ev.target.closest && ev.target.closest('#xSinGrupo')) descargarSinGrupo(); });
+  document.addEventListener('click', function (ev) { var b = ev.target.closest && ev.target.closest('#xAsigGrupo'); if (b) abrirLogica({ k: 'grupos' }, b); });
   /* productividad del punto: duplicados de la sucursal, escalados sin número de ticket y escalados con número que no está en GLPI */
   function descargarCasosPIA() {
     var R = S.R, e = R.explicar({ k: 'prod' }), wb = XLSX.utils.book_new();
@@ -1140,7 +1166,7 @@
       api('GET', 'filtros').then(function (j) {
         S.filtros = j.filtros;
         // filtros guardados con la versión anterior: los grupos técnicos pasan a la lista unificada
-        if (S.filtros && !(S.filtros.version >= 4)) { S.filtros.grupos = E.DEFAULTS.grupos.slice(); if (!(S.filtros.version >= 3)) S.filtros.reincExcluir = E.DEFAULTS.reincExcluir.slice(); S.filtros.version = 4; }
+        if (S.filtros && !(S.filtros.version >= 5)) { S.filtros.grupos = E.DEFAULTS.grupos.slice(); if (!(S.filtros.version >= 3)) S.filtros.reincExcluir = E.DEFAULTS.reincExcluir.slice(); S.filtros.version = 5; }
       }),
       cargarLista(),
       S.assets ? null : Promise.all([fileToB64('img/cover.jpg'), fileToB64('img/bg.jpg')]).then(function (a) { S.assets = { cover: 'image/jpeg;base64,' + a[0], bg: 'image/jpeg;base64,' + a[1] }; })
