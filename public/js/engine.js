@@ -9,6 +9,7 @@
     sucursal: 'San Agustín',
     sguMarker: '- SGU -',
     piaSolicitante: 'Figueroa Atencio Gabriel Alberto',
+    semanaModo: 1,
     fcrStatus: 'Resuelto en 1er. contacto',
     estatusSubcat: 'Estatus de un ticket de reporte',
     aumentoSubcat: 'Cambio de plan - Aumento',
@@ -117,6 +118,18 @@
   function fmtDate(x) { var p = partsFromSerial(x); return pad(p.d) + '/' + pad(p.mo) + '/' + p.y; }
   function fmtDM(x) { var p = partsFromSerial(x); return pad(p.d) + '/' + pad(p.mo); }
   function dayName(x) { return DIAS[partsFromSerial(x).wd]; }
+  /* horas laborales entre dos fechas (serial): lunes a sábado de 8:00 a 20:00, sin feriados */
+  var LAB_INI = 8, LAB_FIN = 20, LAB_LIMITE = 72;
+  function horasLaborales(a, b) {
+    if (a === null || b === null || b <= a) return 0;
+    var h = 0;
+    for (var d = Math.floor(a + 1e-9); d <= Math.floor(b + 1e-9); d++) {
+      if (partsFromSerial(d).wd === 0) continue;
+      var i = Math.max(a, d + LAB_INI / 24), f = Math.min(b, d + LAB_FIN / 24);
+      if (f > i) h += (f - i) * 24;
+    }
+    return Math.round(h * 3600) / 3600;
+  }
 
   /* ---------- números y duraciones ---------- */
   function miles(n) { return n === null || n === undefined || isNaN(n) ? '-' : String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
@@ -395,11 +408,11 @@
       if (r.fecha === null || !enMeses(r.fecha) || r.fecha >= fin + 1 || r.fecha > DESC) { tipFuera++; if (eq(r.sucursal, cfg.sucursal)) tipFueraSA++; return; }
       tipMes.push(r);
     });
-    /* duplicados del PIA: misma categoría, subcategoría, motivo, fecha (día) y cédula → se cuenta una sola vez */
+    /* duplicados del PIA: misma categoría, subcategoría, motivo, fecha (día), cédula, ID de cuenta y ticket GLPI → se cuenta una sola vez */
     var tipSAbruto = tipMes.filter(function (r) { return eq(r.sucursal, cfg.sucursal); });
     var vistos = {}, tipSA = [], tipDuplicados = [];
     tipSAbruto.forEach(function (r) {
-      var k = [norm(r.categoria), norm(r.subcategoria), norm(r.motivo), r.fecha === null ? '' : Math.floor(r.fecha + 1e-9), r.cedula].join('|');
+      var k = [norm(r.categoria), norm(r.subcategoria), norm(r.motivo), r.fecha === null ? '' : Math.floor(r.fecha + 1e-9), r.cedula, String(r.cuenta || '').trim(), String(r.ticket || '').trim()].join('|');
       if (vistos[k]) { tipDuplicados.push({ fila: r, original: vistos[k] }); return; }
       vistos[k] = r; tipSA.push(r);
     });
@@ -439,6 +452,17 @@
       escaladosPIA: escFilas.length, creadosPIA: porGrupo.pia.creados };
 
     /* --- ventana semanal --- */
+    var modoSemana = +cfg.semanaModo === 2 ? 2 : 1;
+    var pIni = wIni - (wFin - wIni); // semana pasada: los 8 días antes de la semana
+    /* tickets abiertos la semana pasada (aunque queden antes del inicio del período) y solucionados en la semana */
+    var prevSem = [];
+    glpiAll.forEach(function (raw) {
+      if (raw.apertura === null || raw.apertura < pIni || raw.apertura >= wIni || raw.apertura > DESC) return;
+      if (!/^(resuelto|cerrado)$/.test(norm(raw.estado)) || raw.solucion === null || raw.solucion < wIni || raw.solucion >= wFin) return;
+      var tit = raw.titulo, dt = REV['t|' + raw.id]; if (!String(tit || '').trim() && dt && dt.procede && dt.procede[0]) tit = String(dt.procede[0]);
+      var sgu = norm(tit).indexOf(marker) >= 0, piaS = eq(raw.solicitante, cfg.piaSolicitante);
+      prevSem.push({ raw: raw, id: raw.id, sgu: sgu, piaSol: piaS, pia: sgu && piaS, res: true, dAp: Math.floor(raw.apertura + 1e-9), dSol: Math.floor(raw.solucion + 1e-9), cat: homologar(raw.categoria), grpL: grpLabel(raw.grupo), dur: Math.max(0, Math.round((raw.solucion - raw.apertura) * 86400)), horasLab: horasLaborales(raw.apertura, raw.solucion) });
+    });
     var dias = []; for (var d = wIni; d < wFin; d++) dias.push(d);
     GRUPOS.forEach(function (g) {
       var L = porGrupo[g].lista, P = porGrupo[g];
@@ -448,7 +472,14 @@
          desglose: de la misma semana (abiertos en la semana) y de semanas pasadas (abiertos antes) */
       var solSem = L.filter(function (t) { return t.dSol !== null && t.dSol >= wIni && t.dSol < wFin; });
       var solMisma = solSem.filter(function (t) { return t.dAp >= wIni; }).length;
-      P.semana = { abiertos: enV.length, cerradosMisma: cerradosMisma, solucionados: solSem.length, solMisma: solMisma, solPrevias: solSem.length - solMisma, pct: enV.length ? solSem.length / enV.length : null };
+      /* opción 1: abiertos y solucionados dentro de la semana ÷ abiertos en la semana
+         opción 2: lo anterior + abiertos la semana pasada, solucionados esta semana en menos de 72 horas laborales (se suman arriba y abajo) */
+      var ext = prevSem.filter(EN[g]).filter(function (t) { return t.horasLab < LAB_LIMITE; });
+      var m1 = { num: solMisma, den: enV.length }, m2 = { num: solMisma + ext.length, den: enV.length + ext.length, extra: ext.length };
+      m1.pct = m1.den ? m1.num / m1.den : null; m2.pct = m2.den ? m2.num / m2.den : null;
+      var mx = modoSemana === 2 ? m2 : m1;
+      P.semana = { modo: modoSemana, abiertos: enV.length, cerradosMisma: cerradosMisma, solucionadosTodos: solSem.length, solMisma: solMisma, solPrevias: solSem.length - solMisma,
+        extra: ext.length, prevResueltos: prevSem.filter(EN[g]).length, num: mx.num, den: mx.den, pct: mx.pct, m1: m1, m2: m2, solucionados: mx.num };
       var accR = 0, filas = dias.map(function (D) {
         var ab = 0, mismo = 0, resD = 0, pendAcc = 0, resSem = 0;
         L.forEach(function (t) {
@@ -666,7 +697,7 @@
     /* --- controles de calidad (sección 8) --- */
     var SGU = porGrupo.sgu.lista;
     controles.tipFuera = { n: tipFuera, sa: tipFueraSA };
-    controles.tipDuplicados = tipDuplicados.map(function (x) { var r = x.fila; return { id: r.id, original: x.original.id, cedula: r.cedula, fecha: r.fecha === null ? '' : fmtDate(r.fecha), categoria: r.categoria, subcategoria: r.subcategoria, motivo: r.motivo, estatus: r.estatus }; });
+    controles.tipDuplicados = tipDuplicados.map(function (x) { var r = x.fila; return { id: r.id, original: x.original.id, cedula: r.cedula, cuenta: r.cuenta, ticket: r.ticket, fecha: r.fecha === null ? '' : fmtDate(r.fecha), categoria: r.categoria, subcategoria: r.subcategoria, motivo: r.motivo, estatus: r.estatus }; });
     controles.escaladosSinCruce = escCruce.filter(function (x) { return !x.ticket; }).map(function (x) { return { id: x.fila.id, ticket: x.fila.ticket || '(vacío)', cedula: x.fila.cedula, fecha: x.fila.fecha === null ? '' : fmtDate(x.fila.fecha), subcategoria: x.fila.subcategoria }; });
     controles.glpiFuera = { n: fueraPeriodo };
     controles.homologadas = homologadas;
@@ -735,11 +766,11 @@
     var filtroPeriodoGLPI = 'GLPI: tickets con "Fecha de apertura" ' + nomMeses + (corteEsFin ? '' : ' (hasta la descarga, ' + fdt(DESC) + ')') + '.';
     var filtroPeriodoTip = 'Tipificador: filas con "Fecha" ' + nomMeses + (corteEsFin ? '' : ' (hasta la descarga)') + '.';
     var filtroSA = 'Tipificador: "Sucursal" = "' + cfg.sucursal + '".';
-    var filtroDup = 'Duplicados excluidos: misma Categoría, Subcategoría, Motivo, Fecha (día) y Cédula de una fila anterior (' + tipDuplicados.length + ' filas).';
+    var filtroDup = 'Duplicados excluidos: misma Categoría, Subcategoría, Motivo, Fecha (día), Cédula, ID de cuenta y Ticket GLPI de una fila anterior (' + tipDuplicados.length + ' filas).';
     var COLS_T = ['ID', 'Título', 'Estado', 'Categoría (homologada)', 'Grupo técnico (asignado)', 'Solicitante', 'Apertura', 'Solución', 'Cierre', 'Tiempo de resolución'];
     function filaT(t) { return [t.id, t.raw.titulo, t.raw.estado, t.cat, t.grpL, t.raw.solicitante, fdt(t.raw.apertura), fdt(t.raw.solucion), fdt(t.raw.cierre), t.dur === null ? '' : fmtD(t.dur)]; }
-    var COLS_P = ['ID', 'Fecha', 'Cédula', 'Categoría', 'Subcategoría', 'Motivo', 'Estatus', 'Ticket GLPI'];
-    function filaP(r) { return [r.id, r.fecha === null ? '' : fmtDate(r.fecha), r.cedula, r.categoria, r.subcategoria, r.motivo, r.estatus, r.ticket]; }
+    var COLS_P = ['ID', 'Fecha', 'Cédula', 'ID de cuenta', 'Categoría', 'Subcategoría', 'Motivo', 'Estatus', 'Ticket GLPI'];
+    function filaP(r) { return [r.id, r.fecha === null ? '' : fmtDate(r.fecha), r.cedula, r.cuenta, r.categoria, r.subcategoria, r.motivo, r.estatus, r.ticket]; }
     function regT(titulo, L) { return { titulo: titulo, cols: COLS_T, filas: L.map(filaT) }; }
     function regP(titulo, L) { return { titulo: titulo, cols: COLS_P, filas: L.map(filaP) }; }
     function filtroCampo(campo, claves, lab) {
@@ -842,11 +873,26 @@
           var enV = L.filter(function (t) { return t.dAp >= wIni && t.dAp < wFin; });
           var sS = L.filter(function (t) { return t.dSol !== null && t.dSol >= wIni && t.dSol < wFin; });
           var sM = sS.filter(function (t) { return t.dAp >= wIni; }), sP = sS.filter(function (t) { return t.dAp < wIni; });
-          e.titulo = 'Tickets solucionados en la semana · ' + et; e.valor = pct(porGrupo[g].semana.pct) + ' · ' + sS.length + ' de ' + enV.length;
-          e.definicion = 'Tickets con "Fecha de solución" en la semana (estado Resuelto o Cerrado), sobre los tickets abiertos en la semana. Se separan los que se abrieron esa misma semana y los que venían de semanas pasadas (dentro del período del informe).';
+          var SW = porGrupo[g].semana, pv = prevSem.filter(EN[g]);
+          var pvSi = pv.filter(function (t) { return t.horasLab < LAB_LIMITE; }), pvNo = pv.filter(function (t) { return t.horasLab >= LAB_LIMITE; });
+          var colsH = COLS_T.concat(['Horas laborales hasta la solución']);
+          var regH = function (tt, LL) { return { titulo: tt, cols: colsH, filas: LL.map(function (t) { return filaT(t).concat([Math.round(t.horasLab * 100) / 100]); }) }; };
+          e.titulo = 'Tickets solucionados en la semana · ' + et; e.valor = pct(SW.pct) + ' · ' + SW.num + ' de ' + SW.den;
+          e.definicion = SW.modo === 2
+            ? 'Opción 2 (incluye semana pasada): tickets abiertos en la semana y solucionados en la misma semana, más los tickets abiertos la semana pasada que se solucionaron esta semana en menos de ' + LAB_LIMITE + ' horas laborales. Esos tickets de la semana pasada se suman tanto a los solucionados como a la base.'
+            : 'Opción 1 (desde el inicio de la semana): tickets abiertos en la semana y solucionados dentro de la misma semana (estado Resuelto o Cerrado, por su "Fecha de solución"), sobre los tickets abiertos en la semana.';
           e.filtros = ['Semana: del ' + fmtDate(wIni) + ' al ' + fmtDate(wFin - 1) + ' (00:00 a 23:59), los 8 días antes del corte.', et + ': ' + DEF_G[g] + '.', filtroPeriodoGLPI];
-          e.pasos = ['Abiertos en la semana: ' + enV.length + '.', 'Solucionados en la semana: ' + sS.length + ' (' + sM.length + ' de la misma semana + ' + sP.length + ' de semanas pasadas).', 'Resultado: ' + sS.length + ' ÷ ' + enV.length + ' = ' + pct(porGrupo[g].semana.pct) + ' (puede pasar de 100% si se resuelve trabajo de semanas pasadas).'];
-          e.registros = [regT('Abiertos en la semana', enV), regT('Solucionados en la semana, abiertos esa misma semana', sM), regT('Solucionados en la semana, de semanas pasadas', sP)]; break;
+          if (SW.modo === 2) e.filtros.push('Semana pasada: del ' + fmtDate(pIni) + ' al ' + fmtDate(wIni - 1) + ' (los 8 días anteriores; cuentan aunque queden antes del inicio del período).',
+            'Horas laborales: lunes a sábado de ' + LAB_INI + ':00 a ' + LAB_FIN + ':00 (12 horas por día; domingos no cuentan; no se descuentan feriados), desde la apertura hasta la solución. Debe ser menor a ' + LAB_LIMITE + ' horas.');
+          e.pasos = ['Abiertos en la semana: ' + enV.length + '.', 'De esos, solucionados en la misma semana: ' + sM.length + '.'];
+          if (SW.modo === 2) e.pasos.push('Abiertos la semana pasada y solucionados esta semana: ' + pv.length + '; en menos de ' + LAB_LIMITE + ' horas laborales: ' + pvSi.length + '.',
+            'Resultado: (' + sM.length + ' + ' + pvSi.length + ') ÷ (' + enV.length + ' + ' + pvSi.length + ') = ' + pct(SW.pct) + '.');
+          else e.pasos.push('Resultado: ' + sM.length + ' ÷ ' + enV.length + ' = ' + pct(SW.pct) + '.');
+          e.pasos.push('Como referencia: en la semana se solucionaron ' + sS.length + ' tickets en total (' + sM.length + ' de la misma semana + ' + sP.length + ' de semanas pasadas, dentro del período).');
+          e.registros = [regT('Abiertos en la semana', enV), regT('Solucionados en la semana, abiertos esa misma semana', sM)];
+          if (SW.modo === 2) e.registros.push(regH('Semana pasada · solucionados esta semana en menos de ' + LAB_LIMITE + ' h laborales (cuentan)', pvSi), regH('Semana pasada · solucionados esta semana con ' + LAB_LIMITE + ' h laborales o más (no cuentan)', pvNo));
+          else e.registros.push(regT('Solucionados en la semana, de semanas pasadas (no cuentan en la opción 1)', sP));
+          break;
         case 'reinc':
           var RI = porGrupo[g].reinc;
           e.titulo = 'Reincidencia de fallas FTTH · ' + et; e.valor = RI.abonados + ' abonados · ' + RI.tickets + ' tickets';
@@ -996,6 +1042,7 @@
       asignacionGrupos: asignacionGrupos, reglasGrupo: REGLAS_GRUPO,
       sinGrupo: (function () { var L0 = T.filter(function (t) { return !grpLineas(t.raw.grupo).length; }); return { titulo: 'Tickets sin grupo técnico asignado', cols: ['Grupo'].concat(COLS_T), filas: L0.map(function (t) { return [t.pia ? 'PIA' : t.sgu ? 'SGU otras unidades' : 'País'].concat(filaT(t)); }) }; })(),
       seleccionTxt: seleccionTxt,
+      semanaModo: modoSemana, semanaPasada: { desde: fmtDate(pIni), hasta: fmtDate(wIni - 1) },
       ventana: { desde: fmtDate(wIni), hasta: fmtDate(wFin - 1), corta: partsFromSerial(wIni).d + '–' + fmtDM(wFin - 1) },
       etiquetas: ETIQUETAS, etiquetasLargas: ETIQUETAS_LARGAS,
       fijos: fijos, g: resumenGrupos, comparativos: comparativos,
@@ -1026,10 +1073,10 @@
   var api = {
     VERSION: 2, DEFAULTS: DEFAULTS, GRUPOS: GRUPOS, ETIQUETAS: ETIQUETAS, ETIQUETAS_LARGAS: ETIQUETAS_LARGAS,
     compute: compute, snapshot: snapshot, loadGLPI: loadGLPI, loadTipif: loadTipif,
-    parseDate: parseDate, serialFromParts: serialFromParts, partsFromSerial: partsFromSerial,
+    parseDate: parseDate, serialFromParts: serialFromParts, partsFromSerial: partsFromSerial, dayName: dayName,
     fmtD: fmtD, fmtPalabras: fmtPalabras, fmtDate: fmtDate, miles: miles, pct: pct, tickets: tickets, catCorta: catCorta,
     cuentaDeTitulo: cuentaDeTitulo, direccionPlan: direccionPlan, modaPromedio: modaPromedio, celdaTiempo: celdaTiempo, homologar: homologar,
-    norm: norm, grpKey: grpKey, grpLabel: grpLabel, grpRegla: grpRegla, GRUPOS_PRIORIDAD: GRUPOS_PRIORIDAD, SIN_GRUPO: SIN_GRUPO, MESES: MESES, esPleyArriba: esPleyArriba, claveCliente: claveCliente
+    norm: norm, grpKey: grpKey, grpLabel: grpLabel, grpRegla: grpRegla, horasLaborales: horasLaborales, GRUPOS_PRIORIDAD: GRUPOS_PRIORIDAD, SIN_GRUPO: SIN_GRUPO, MESES: MESES, esPleyArriba: esPleyArriba, claveCliente: claveCliente
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.PIAEngine = api;
 })(typeof window !== 'undefined' ? window : this);

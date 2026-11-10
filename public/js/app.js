@@ -84,7 +84,7 @@
   /* ================= configuración de cálculo ================= */
   function defaultsFiltros() {
     return { version: 5, categorias: E.DEFAULTS.categorias.slice(), grupos: E.DEFAULTS.grupos.slice(), reincExcluir: E.DEFAULTS.reincExcluir.slice(),
-      sucursal: E.DEFAULTS.sucursal, sguMarker: E.DEFAULTS.sguMarker, piaSolicitante: E.DEFAULTS.piaSolicitante };
+      sucursal: E.DEFAULTS.sucursal, sguMarker: E.DEFAULTS.sguMarker, piaSolicitante: E.DEFAULTS.piaSolicitante, semanaModo: 1 };
   }
   function filtros() { return Object.assign(defaultsFiltros(), S.filtros || {}); }
   function guardarFiltros() { return api('PUT', 'filtros', { filtros: filtros() }).catch(function (e) { toast('No se guardaron los filtros: ' + e.message, true); }); }
@@ -151,6 +151,9 @@
 
   /* ================= lectura de archivos ================= */
   function decodeText(buf) { var u8 = new Uint8Array(buf); try { return new TextDecoder('utf-8', { fatal: true }).decode(u8); } catch (e) { return new TextDecoder('windows-1252').decode(u8); } }
+  /* fecha y hora local para <input type="datetime-local"> */
+  function horaTxt(x) { var p = E.partsFromSerial(x); return String(p.h).padStart(2, '0') + ':' + String(p.mi).padStart(2, '0'); }
+  function localISO(d) { var p = function (n) { return String(n).padStart(2, '0'); }; return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes()); }
   function readTable(file, loader) {
     return file.arrayBuffer().then(function (buf) {
       if (typeof XLSX === 'undefined') throw new Error('No se pudo cargar el lector de Excel. Revise su conexión y recargue la página.');
@@ -254,12 +257,12 @@
         return '<tr><td>' + esc(c.periodo || r.periodo) + '<div class="hint">corte ' + esc(r.corte) + ' · descarga ' + esc(corteTxt(c.corte)) + '</div></td><td class="n">' + pct((r.irs || r.ir).pct) + (r.irs ? '' : ' <span class="hint">(PIA)</span>') + '</td><td class="n">' + pct(r.fcr.pct) + '</td><td class="n">' + num(r.prod.casos) + '</td>' +
           '<td class="n">' + E.fmtD(g.pia.prom) + '</td><td class="n">' + E.fmtD(g.sgu.prom) + '</td><td class="n">' + E.fmtD(g.pais.prom) + '</td><td class="n">' + pct(g.sgu.semana) + '</td><td class="n">' + num(g.sgu.reincAb) + ' ab. / ' + num(g.sgu.reincTk) + ' tk</td><td class="n">' + num(g.sgu.upgrades) + '</td></tr>';
       }).join('') + '</tbody></table></div></section>' : '';
-    var now = new Date(); now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    var now = new Date();
     shell('repositorio', '', '<div class="page"><div class="page-h"><div><h1>Repositorio</h1><p>Suba la descarga de GLPI y del Tipificador. Los archivos se procesan en su navegador y se guarda una copia comprimida de los datos necesarios para el informe.</p></div></div>' +
       '<form class="panel" id="up" novalidate><h2>Nueva carga</h2><div class="grid-form">' +
       '<div class="field"><label for="fG">Archivo de GLPI</label><div class="drop" id="dG"><input type="file" id="fG" accept=".xlsx,.xls,.xlsm,.csv,.txt,.ods"><strong>Seleccione o arrastre el archivo</strong><small>Excel o CSV exportado de GLPI</small></div></div>' +
       '<div class="field"><label for="fT">Archivo del Tipificador</label><div class="drop" id="dT"><input type="file" id="fT" accept=".xlsx,.xls,.xlsm,.csv,.txt,.ods"><strong>Seleccione o arrastre el archivo</strong><small>Excel o CSV de la lista</small></div></div>' +
-      '<div class="field"><label for="fC">Fecha y hora de descarga</label><input class="input" type="datetime-local" id="fC" value="' + now.toISOString().slice(0, 16) + '"><span class="hint">Cuándo se bajó la data. El informe nunca va más allá de esta fecha y hora.</span></div></div>' +
+      '<div class="field"><label for="fC">Fecha y hora de descarga</label><input class="input" type="datetime-local" id="fC" value="' + localISO(now) + '"><span class="hint">Cuándo se bajó la data. El informe nunca va más allá de esta fecha y hora.</span><span class="hint" id="fCtxt"></span></div></div>' +
       '<div class="field"><span class="lbl">Meses del informe</span><div class="row meses" id="fM"></div><span class="hint">Marque uno o varios meses seguidos (por ejemplo septiembre, octubre o septiembre + octubre). Llenan las fechas de abajo, que también puede cambiar a mano.</span></div>' +
       '<div class="grid-form"><div class="field"><label for="fI">Fecha de inicio</label><input class="input" type="date" id="fI"><span class="hint">Desde este día (00:00).</span></div>' +
       '<div class="field"><label for="fF">Fecha final</label><input class="input" type="date" id="fF"><span class="hint">Hasta este día (23:59). La fecha de corte es la fecha final, o la de descarga si es anterior; la semana son los 8 días antes del corte.</span></div></div>' +
@@ -277,6 +280,12 @@
       cont.innerHTML = opcionesMeses(+m[1], +m[2]).reverse().map(function (k, i, a) { var on = prev.length ? prev.indexOf(k) >= 0 : i === a.length - 1; return '<label class="chk"><input type="checkbox" value="' + k + '"' + (on ? ' checked' : '') + '> ' + nombreMes(k) + '</label>'; }).join('');
       enlazarMeses(cont, document.getElementById('fI'), document.getElementById('fF'));
     }
+    function pintarDescarga() {
+      var m = document.getElementById('fC').value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/), el = document.getElementById('fCtxt');
+      el.innerHTML = m ? 'Se usará: <strong>' + esc(E.dayName(E.serialFromParts(+m[1], +m[2], +m[3])).toLowerCase() + ' ' + m[3] + '/' + m[2] + '/' + m[1] + ' a las ' + m[4] + ':' + m[5]) + '</strong> (24 horas' + (+m[4] < 6 ? '; es de madrugada, verifique a. m. / p. m.' : '') + ').' : '';
+    }
+    document.getElementById('fC').addEventListener('input', pintarDescarga);
+    pintarDescarga();
     document.getElementById('fC').addEventListener('change', function () { document.getElementById('fM').innerHTML = ''; document.getElementById('fI').value = ''; document.getElementById('fF').value = ''; pintarMeses(); });
     pintarMeses();
     [['dG', 'fG', 'g'], ['dT', 'fT', 't']].forEach(function (x) {
@@ -309,6 +318,10 @@
         readTable(files.t, E.loadTipif).catch(function (e) { throw new Error('Tipificador: ' + e.message); })
       ]).then(function (res) {
         st.textContent = 'Calculando…';
+        /* la descarga no puede ser anterior a lo que trae el archivo de GLPI */
+        var ultimo = null;
+        res[0].forEach(function (r) { [r.apertura, r.solucion, r.cierre].forEach(function (v) { if (typeof v === 'number' && (ultimo === null || v > ultimo)) ultimo = v; }); });
+        if (ultimo !== null && ultimo > corte + 1 / 1440) throw new Error('El archivo de GLPI tiene movimientos hasta el ' + E.fmtDate(ultimo) + ' a las ' + horaTxt(ultimo) + ', después de la hora de descarga indicada (' + E.fmtDate(corte) + ' a las ' + horaTxt(corte) + '). Corrija la fecha y hora de descarga; si su navegador usa formato de 12 horas, revise a. m. / p. m.');
         var R = E.compute(res[0], res[1], Object.assign({}, filtros(), { corte: corte, nps: nps, meses: meses, inicio: inicio, fin: fin }));
         if (!R.volumen.glpi) throw new Error('GLPI no tiene tickets abiertos ' + R.rangoTxt + '. Revise las fechas.');
         if (!R.fijos.fcr.den) throw new Error('El Tipificador no tiene casos de "' + filtros().sucursal + '" entre la fecha de inicio y la final.');
@@ -414,9 +427,21 @@
   function kcard(title, tag, v, extra, note, chipG, x) {
     return '<div class="viz card c4' + (x ? ' xable' : '') + '"' + xa(x) + '><div class="t">' + esc(title) + (tag ? '<i>' + esc(tag) + '</i>' : '') + (chipG ? '<span style="float:right">' + chipH(chipG) + '</span>' : '') + '</div><div class="v">' + esc(v) + (extra ? '<small>' + esc(extra) + '</small>' : '') + '</div>' + (note ? '<div class="n">' + esc(note) + '</div>' : '') + '</div>';
   }
-  function kpar(title, tag, a, b, f, xk) {
+  function semanaTxt(x) {
+    return x.modo === 2
+      ? num(x.num) + ' de ' + num(x.den) + ' · ' + num(x.solMisma) + ' abiertos y solucionados en la semana + ' + num(x.extra) + ' de la semana pasada (< 72 h laborales)'
+      : num(x.num) + ' de ' + num(x.den) + ' abiertos · abiertos y solucionados dentro de la semana';
+  }
+  function semanaSeg(R) {
+    if (S.pdfMode) return '';
+    var m = R.semanaModo;
+    return '<div class="seg seg-s" role="group" aria-label="Indicador semanal">' +
+      '<button type="button" data-semmodo="1" aria-pressed="' + (m === 1) + '" title="Abiertos en la semana y solucionados dentro de la misma semana">1 · Desde inicio de semana</button>' +
+      '<button type="button" data-semmodo="2" aria-pressed="' + (m === 2) + '" title="Suma los abiertos la semana pasada que se solucionaron esta semana en menos de 72 horas laborales (lun–sáb 8:00–20:00)">2 · Con semana pasada</button></div>';
+  }
+  function kpar(title, tag, a, b, f, xk, extra) {
     var half = function (g) { var x = f(g); return '<div class="half' + (xk ? ' xable' : '') + '"' + xa(xk ? { k: xk, g: g } : null) + '>' + chipH(g) + '<div class="v">' + esc(x.v) + (x.u ? '<small>' + esc(x.u) + '</small>' : '') + '</div><div class="n">' + esc(x.n || '') + '</div></div>'; };
-    return '<div class="viz card c4"><div class="t">' + esc(title) + (tag ? '<i>' + esc(tag) + '</i>' : '') + '</div><div class="halves">' + half(a) + half(b) + '</div></div>';
+    return '<div class="viz card c4"><div class="t">' + esc(title) + (tag ? '<i>' + esc(tag) + '</i>' : '') + '</div>' + (extra || '') + '<div class="halves">' + half(a) + half(b) + '</div></div>';
   }
   function table(h1, h2, rows) {
     return '<div class="tbl"><table class="data"><thead><tr>' + h1 + '</tr>' + (h2 ? '<tr>' + h2 + '</tr>' : '') + '</thead><tbody>' + rows.map(function (r) {
@@ -468,7 +493,7 @@
         kcard('Índice de resolución SGU', '', pct(F.irSGU.pct), num(F.irSGU.num) + ' de ' + num(F.irSGU.den), num(F.irSGU.fcr) + ' resueltos en 1er contacto · ' + num(F.irSGU.escaladosPIA) + ' escalados por PIA · ' + num(F.irSGU.creadosPIA) + ' creados por PIA', 'sgu', { k: 'irSGU' }) +
         kcard('Resolución en 1er contacto (FCR)', '', pct(F.fcr.pct), num(F.fcr.n) + ' casos', 'de los ' + num(F.fcr.den) + ' casos únicos tipificados por el PIA', 'pia', { k: 'fcr' }) +
         kcard('Productividad del punto PIA', '', num(F.productividad.casos) + ' casos', num(F.productividad.abonados) + ' abonados', 'casos únicos tipificados por ' + R.cfg.sucursal + (F.productividad.duplicados ? ' (' + num(F.productividad.duplicados) + ' duplicados excluidos)' : '') + '; abonados = cédulas distintas', 'pia', { k: 'prod' }) +
-        kpar('Tickets solucionados en la semana', '', 'sgu', 'pais', function (g) { var x = G[g].semana; return { v: pct(x.pct), n: num(x.solucionados) + ' solucionados de ' + num(x.abiertos) + ' abiertos (' + R.ventana.corta + '): ' + num(x.solMisma) + ' de la misma semana · ' + num(x.solPrevias) + ' de semanas pasadas' }; }, 'semana') +
+        kpar('Tickets solucionados en la semana', '', 'sgu', 'pais', function (g) { var x = G[g].semana; return { v: pct(x.pct), n: semanaTxt(x) }; }, 'semana', semanaSeg(R)) +
         kcard('Satisfacción / NPS', 'Trimestral', F.nps || '—', '', F.nps ? '' : 'sin medición en este corte (se carga en el Repositorio con Editar)', null, { k: 'nps' }) +
         kpar('Reincidencia de fallas FTTH', '', a, b, function (g) { var x = G[g].reinc; return { v: num(x.abonados), u: 'abonados', n: num(x.tickets) + ' tickets · ' + pct(x.pct) + ' de ' + num(x.ftth) + ' seleccionados' }; }, 'reinc') +
         '<div class="viz card c4 xable"' + xa({ k: 'cmp', id: CMPS[cmpIdx][2] }) + '><div class="t">Comparativo ' + esc(L[a]) + ' vs. ' + esc(L[b]) + '<i>Mensual</i></div><div class="v">' + esc(cmp.valor) + '</div>' + (cmp.ganador ? '<div class="n" style="color:var(--ink)">a favor de ' + chipH(cmp.ganador) + '</div>' : '') + '<div class="n">' + esc(cmp.detalle) + '</div></div>' +
@@ -534,7 +559,7 @@
       var K = R.controles;
       var ctl = function (n, titulo, cnt, detalle) { return tile('c12', n + '. ' + titulo, cnt, detalle || ''); };
       body = ctl(1, 'Tipificador fuera de período', num(K.tipFuera.n) + ' filas descartadas (' + num(K.tipFuera.sa) + ' de ' + R.cfg.sucursal + ')') +
-        ctl('1b', 'Casos duplicados del PIA (Tipificador)', num(K.tipDuplicados.length) + ' filas excluidas: misma categoría, subcategoría, motivo, fecha y cédula', K.tipDuplicados.length ? table('<th>ID</th><th>Duplica a</th><th>Fecha</th><th>Cédula</th><th>Categoría</th><th>Subcategoría</th><th>Motivo</th><th>Estatus</th>', '', K.tipDuplicados.map(function (x) { return { cells: [x.id, x.original, x.fecha, x.cedula, x.categoria, x.subcategoria, x.motivo, x.estatus] }; })) : '') +
+        ctl('1b', 'Casos duplicados del PIA (Tipificador)', num(K.tipDuplicados.length) + ' filas excluidas: misma categoría, subcategoría, motivo, fecha, cédula, ID de cuenta y ticket GLPI', K.tipDuplicados.length ? table('<th>ID</th><th>Duplica a</th><th>Fecha</th><th>Cédula</th><th>ID de cuenta</th><th>Ticket GLPI</th><th>Categoría</th><th>Subcategoría</th><th>Motivo</th><th>Estatus</th>', '', K.tipDuplicados.map(function (x) { return { cells: [x.id, x.original, x.fecha, x.cedula, x.cuenta, x.ticket, x.categoria, x.subcategoria, x.motivo, x.estatus] }; })) : '') +
         ctl('1c', 'Escalados del PIA sin ticket en GLPI', num(K.escaladosSinCruce.length) + ' casos escalados sin número de ticket o con un número que no está en el archivo de GLPI (no suman al índice de resolución)', K.escaladosSinCruce.length ? table('<th>ID</th><th>Ticket GLPI</th><th>Fecha</th><th>Cédula</th><th>Subcategoría</th>', '', K.escaladosSinCruce.map(function (x) { return { cells: [x.id, x.ticket, x.fecha, x.cedula, x.subcategoria] }; })) : '') +
         ctl(2, 'Categorías homologadas', num(K.homologadas.length) + ' tickets con ">" o "<" al final (la lista completa está en el Excel)', K.homologadas.length ? table('<th>Categoría original</th><th>Homologada</th><th>Tickets</th>', '', (function () { var m = {}; K.homologadas.forEach(function (x) { var k = x.de + '\u0000' + x.a; m[k] = (m[k] || 0) + 1; }); return Object.keys(m).map(function (k) { var p = k.split('\u0000'); return { cells: [p[0], p[1], num(m[k])] }; }); })()) : '') +
         ctl(3, 'Posibles duplicados (SGU)', num(K.posiblesDuplicados.length) + ' pares: misma cuenta y categoría, abiertos a menos de 60 minutos', K.posiblesDuplicados.length ? table('<th>Cuenta</th><th>Categoría</th><th>Tickets</th><th>Minutos</th>', '', K.posiblesDuplicados.map(function (x) { return { cells: [x.cuenta, x.cat, x.ids.join(' y '), x.minutos] }; })) : '') +
@@ -715,6 +740,11 @@
     bindCtx();
     if (!R) return;
     Array.prototype.forEach.call(document.querySelectorAll('.tabs button'), function (b) { b.addEventListener('click', function () { S.tab = +b.getAttribute('data-t'); renderInforme(); }); });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-semmodo]'), function (b) { b.addEventListener('click', function () {
+      var m = +b.getAttribute('data-semmodo'); if (filtros().semanaModo === m) return;
+      S.filtros = Object.assign(filtros(), { semanaModo: m }); calcular(); renderInforme(); guardarFiltros();
+      toast(m === 2 ? 'Indicador semanal: opción 2 (incluye la semana pasada, < 72 h laborales).' : 'Indicador semanal: opción 1 (desde el inicio de la semana).');
+    }); });
     Array.prototype.forEach.call(document.querySelectorAll('[data-cmp]'), function (b) { b.addEventListener('click', function () { S.cmp = +b.getAttribute('data-cmp'); renderInforme(); }); });
     document.getElementById('xXls').addEventListener('click', exportExcel);
     var xr = document.getElementById('xRev'); if (xr) xr.addEventListener('click', function () { S.verRev = true; S.revVista = 'revisados'; renderInforme(); });
@@ -872,11 +902,16 @@
     fila('% solucionado', function (g) { return G[g].pctSol; });
     fila('Tiempo promedio de resolución', function (g) { return E.fmtD(G[g].prom); });
     fila('Moda (redondeada a la hora)', function (g) { return G[g].moda ? E.fmtD(G[g].moda) : '-'; });
+    fila('Indicador semanal usado', function (g) { return G[g].semana.modo === 2 ? 'Opción 2: incluye semana pasada (< 72 h laborales)' : 'Opción 1: desde el inicio de la semana'; });
     fila('Abiertos en la semana', function (g) { return G[g].semana.abiertos; });
-    fila('Solucionados en la semana', function (g) { return G[g].semana.solucionados; });
-    fila('… abiertos esa misma semana', function (g) { return G[g].semana.solMisma; });
-    fila('… de semanas pasadas', function (g) { return G[g].semana.solPrevias; });
+    fila('… solucionados en la misma semana', function (g) { return G[g].semana.solMisma; });
+    fila('Abiertos la semana pasada, solucionados en la semana en < 72 h laborales', function (g) { return G[g].semana.extra; });
+    fila('Solucionados que cuentan (numerador)', function (g) { return G[g].semana.num; });
+    fila('Base (denominador)', function (g) { return G[g].semana.den; });
     fila('% de tickets solucionados en la semana', function (g) { return G[g].semana.pct; });
+    fila('% opción 1 (desde el inicio de la semana)', function (g) { return G[g].semana.m1.pct; });
+    fila('% opción 2 (+ semana pasada < 72 h laborales)', function (g) { return G[g].semana.m2.pct; });
+    fila('Referencia: solucionados en la semana, todos (incluye semanas pasadas)', function (g) { return G[g].semana.solucionadosTodos; });
     fila('Resueltos el mismo día (semana)', function (g) { return G[g].gestion.mismoDia; });
     fila('% resueltos el mismo día', function (g) { return G[g].gestion.pct; });
     fila('Reincidencia FTTH: abonados', function (g) { return G[g].reinc.abonados; });

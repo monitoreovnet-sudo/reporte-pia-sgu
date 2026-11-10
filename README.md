@@ -57,7 +57,7 @@ Cada vez que se suba un cambio al repositorio, Cloudflare publica la nueva versi
 Implementa la especificación de octubre 2026 (`prompt_reporte_pia_sgu.md`):
 
 - **Período:** en el Repositorio se indica la fecha y hora de descarga, y la fecha de inicio y la fecha final del informe (las casillas de meses las llenan; se pueden cambiar a mano y después con "Editar"). GLPI se filtra por fecha de apertura y el Tipificador por fecha, entre el inicio (00:00) y el final (23:59), sin pasar de la descarga. Fecha de corte = fecha final, o la de descarga si es anterior. La portada muestra los meses y la fecha de corte; los archivos se llaman con los meses y la fecha y hora de descarga.
-- **Tipificador (PIA):** productividad = casos únicos de San Agustín; duplicado = misma categoría, subcategoría, motivo, fecha y cédula. Abonados = cédulas distintas. FCR = resueltos en 1er contacto ÷ productividad. Índice de resolución PIA = (resueltos en 1er contacto + escalados cuyo "Ticket GLPI" tiene fecha de solución en GLPI) ÷ productividad.
+- **Tipificador (PIA):** productividad = casos únicos de San Agustín; duplicado = misma categoría, subcategoría, motivo, fecha, cédula, ID de cuenta y ticket GLPI. Abonados = cédulas distintas. FCR = resueltos en 1er contacto ÷ productividad. Índice de resolución PIA = (resueltos en 1er contacto + escalados cuyo "Ticket GLPI" tiene fecha de solución en GLPI) ÷ productividad.
 - **Ver lógica del cálculo:** en el Informe, al hacer clic en un indicador o en una celda de tabla se abre la explicación del cálculo con los filtros, los pasos y los registros usados, descargables en Excel.
 - **Semana:** los 8 días anteriores al corte.
 - **Tiempos:** "moda o promedio" (moda redondeada a la hora, con 2 o más repeticiones).
