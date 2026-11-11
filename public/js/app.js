@@ -101,14 +101,14 @@
   function empaquetar(glpi, tip) {
     return JSON.stringify({
       v: 3, dup: glpi.duplicados || 0,
-      g: glpi.map(function (r) { return [r.id, r.titulo, r.estado, r.categoria, r.apertura, r.solucion, r.cierre, r.solicitante, r.grupo, r.descripcion, r.cliente, r.cuentaDesc || '']; }),
+      g: glpi.map(function (r) { return [r.id, r.titulo, r.estado, r.categoria, r.apertura, r.solucion, r.cierre, r.solicitante, r.grupo, r.descripcion, r.cliente, r.cuentaDesc || '', r.tecnico == null ? null : r.tecnico]; }),
       t: tip.map(function (r) { return [r.fecha, r.sucursal, r.categoria, r.subcategoria, r.estatus, r.ticket, r.cuenta, r.motivo, r.cedula, r.id]; })
     });
   }
   function desempaquetar(txt) {
     var o = JSON.parse(txt);
     if (o.v !== 3) { var e = new Error('Esta carga es del formato anterior. Vuelva a subir los archivos en el Repositorio.'); e.v1 = true; throw e; }
-    var glpi = o.g.map(function (a) { return { id: a[0], titulo: a[1], estado: a[2], categoria: a[3], apertura: a[4], solucion: a[5], cierre: a[6], solicitante: a[7], grupo: a[8], descripcion: a[9], cliente: a[10], cuentaDesc: a[11] || '' }; });
+    var glpi = o.g.map(function (a) { return { id: a[0], titulo: a[1], estado: a[2], categoria: a[3], apertura: a[4], solucion: a[5], cierre: a[6], solicitante: a[7], grupo: a[8], descripcion: a[9], cliente: a[10], cuentaDesc: a[11] || '', tecnico: a.length > 12 ? a[12] : null }; });
     glpi.duplicados = o.dup || 0;
     var tip = o.t.map(function (a) { return { fecha: a[0], sucursal: a[1], categoria: a[2], subcategoria: a[3], estatus: a[4], ticket: a[5], cuenta: a[6], motivo: a[7], cedula: a[8], id: a[9] }; });
     return { glpi: glpi, tip: tip };
@@ -425,7 +425,7 @@
   function tile(cls, title, sub, body) { return '<div class="viz ' + cls + '"><h3>' + esc(title) + (sub ? '<small>' + esc(sub) + '</small>' : '') + '</h3>' + body + '</div>'; }
   function xa(x) { return x ? ' data-x="' + esc(JSON.stringify(x)) + '" tabindex="0"' : ''; }
   function kcard(title, tag, v, extra, note, chipG, x) {
-    return '<div class="viz card c4' + (x ? ' xable' : '') + '"' + xa(x) + '><div class="t">' + esc(title) + (tag ? '<i>' + esc(tag) + '</i>' : '') + (chipG ? '<span style="float:right">' + chipH(chipG) + '</span>' : '') + '</div><div class="v">' + esc(v) + (extra ? '<small>' + esc(extra) + '</small>' : '') + '</div>' + (note ? '<div class="n">' + esc(note) + '</div>' : '') + '</div>';
+    return '<div class="viz card c4' + (x ? ' xable' : '') + '"' + xa(x) + '><div class="t">' + esc(title) + (tag ? '<i>' + esc(tag) + '</i>' : '') + (chipG ? '<span style="float:right">' + chipH(chipG) + '</span>' : '') + '</div><div class="v">' + esc(v) + (extra ? '<small>' + esc(extra) + '</small>' : '') + '</div>' + (note ? '<div class="n">' + esc(note).replace(/\n/g, '<br>') + '</div>' : '') + '</div>';
   }
   function semanaTxt(x) {
     return x.modo === 2
@@ -490,7 +490,7 @@
     if (i === 0) {
       var a = CMPS[cmpIdx][0], b = CMPS[cmpIdx][1], cmp = R.comparativos[CMPS[cmpIdx][2]];
       body = (S.pdfMode ? '' : '<div class="c12 seg" role="group" aria-label="Comparación">' + CMPS.map(function (c, k) { return '<button type="button" data-cmp="' + k + '" aria-pressed="' + (k === cmpIdx) + '">' + c[3] + '</button>'; }).join('') + '</div>') +
-        kcard('Índice de resolución SGU', '', pct(F.irSGU.pct), num(F.irSGU.num) + ' de ' + num(F.irSGU.den), num(F.irSGU.fcr) + ' resueltos en 1er contacto · ' + num(F.irSGU.escaladosPIA) + ' escalados por PIA · ' + num(F.irSGU.creadosPIA) + ' creados por PIA', 'sgu', { k: 'irSGU' }) +
+        kcard('Índice de resolución SGU', '', pct(F.irSGU.pct), num(F.irSGU.num) + ' de ' + num(F.irSGU.den), num(F.irSGU.fcr) + ' resueltos en 1er contacto\n' + num(F.irSGU.resPIA) + ' creados por PIA\n' + num(F.irSGU.resOtras) + ' creados por otras unidades', 'sgu', { k: 'irSGU' }) +
         kcard('Resolución en 1er contacto (FCR)', '', pct(F.fcr.pct), num(F.fcr.n) + ' casos', 'de los ' + num(F.fcr.den) + ' casos únicos tipificados por el PIA', 'pia', { k: 'fcr' }) +
         kcard('Productividad del punto PIA', '', num(F.productividad.casos) + ' casos', num(F.productividad.abonados) + ' abonados', 'casos únicos tipificados por ' + R.cfg.sucursal + (F.productividad.duplicados ? ' (' + num(F.productividad.duplicados) + ' duplicados excluidos)' : '') + '; abonados = cédulas distintas', 'pia', { k: 'prod' }) +
         kpar('Tickets solucionados en la semana', '', 'sgu', 'pais', function (g) { var x = G[g].semana; return { v: pct(x.pct), n: semanaTxt(x) }; }, 'semana', semanaSeg(R)) +
@@ -895,7 +895,7 @@
     var segs = GS.map(function (g) { return LL[g]; });
     var ind = [['Reporte PIA · SGU vs País'], ['Responsable', R.responsable || ''], ['Período', R.periodoLargo + ' · ' + R.rangoTxt], ['Fecha de corte', R.corteFecha], ['Descarga', R.descargaTxt], ['Fuentes', R.fuentesTxt], ['Semana', R.ventana.desde + ' al ' + R.ventana.hasta], [],
       ['Indicadores fijos (PIA)', 'Valor', 'Detalle'],
-      ['Índice de resolución SGU', F.irSGU.pct, '(' + F.irSGU.solucionados + ' tickets SGU solucionados + ' + F.irSGU.fcr + ' resueltos en 1er contacto) de (' + F.irSGU.creados + ' tickets SGU creados + ' + F.irSGU.fcr + ') · ' + F.irSGU.escaladosPIA + ' escalados por PIA · ' + F.irSGU.creadosPIA + ' creados por PIA'],
+      ['Índice de resolución SGU', F.irSGU.pct, F.irSGU.num + ' de ' + F.irSGU.den + ' · numerador: ' + F.irSGU.fcr + ' resueltos en 1er contacto + ' + F.irSGU.resPIA + ' tickets SGU resueltos creados por PIA + ' + F.irSGU.resOtras + ' creados por otras unidades · denominador: ' + F.irSGU.creados + ' tickets SGU + ' + F.irSGU.fcr + ' de 1er contacto'],
       ['Índice de resolución PIA (referencia)', F.ir.pct, '(' + F.ir.fcr + ' en 1er contacto + ' + F.ir.escResueltos + ' tickets escalados por PIA ya solucionados en GLPI) de ' + F.ir.den + ' casos'],
       ['Resolución en 1er contacto (FCR)', F.fcr.pct, F.fcr.n + ' de ' + F.fcr.den + ' casos tipificados'],
       ['Productividad del punto PIA', F.productividad.casos, F.productividad.abonados + ' abonados (cédulas distintas) · ' + F.productividad.duplicados + ' duplicados excluidos de ' + F.productividad.bruto + ' filas'],

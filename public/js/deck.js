@@ -47,8 +47,9 @@
       if (o.chip) chip(s, x + w - 0.16 - Math.max(0.42, 0.08 + (o.chipLabel || L[o.chip] || '').length * 0.062), y + 0.15, o.chip, o.chipLabel);
       var v = [{ text: String(o.value), options: { bold: true, color: C.purple, fontSize: o.size || 24 } }];
       if (o.unit) v.push({ text: '  ' + o.unit, options: { bold: true, color: C.ink, fontSize: 10 } });
-      txt(s, v, { x: x + 0.16, y: y + 0.42, w: w - 0.3, h: h - 0.42 - (o.sub ? 0.4 : 0.1), valign: 'middle', fit: 'shrink' });
-      if (o.sub) txt(s, o.sub, { x: x + 0.16, y: y + h - 0.42, w: w - 0.3, h: 0.34, fontSize: 8, color: C.muted, valign: 'middle' });
+      var subH = o.sub && String(o.sub).indexOf('\n') >= 0 ? 0.52 : 0.34;
+      txt(s, v, { x: x + 0.16, y: y + 0.42, w: w - 0.3, h: h - 0.42 - (o.sub ? subH + 0.06 : 0.1), valign: 'middle', fit: 'shrink' });
+      if (o.sub) txt(s, o.sub, { x: x + 0.16, y: y + h - subH - 0.08, w: w - 0.3, h: subH, fontSize: 8, color: C.muted, valign: 'middle' });
     }
     // Tarjeta comparativa partida en dos mitades (A | B)
     function cardPar(s, x, y, w, h, label, tag, a, b, va, vb, sinChipB) {
@@ -119,7 +120,7 @@
       var u = G[g].upgrades, v = G[g].sva;
       var det;
       if (!u.n && u.cambiosPlan && u.bajas === u.cambiosPlan) det = 'Tramitó ' + u.cambiosPlan + (u.cambiosPlan === 1 ? ' cambio de plan, a un plan menor' : ' cambios de plan, ' + (u.cambiosPlan === 2 ? 'los 2' : 'los ' + u.cambiosPlan) + ' a un plan menor');
-      else det = miles(u.n) + ' aumento' + (u.n === 1 ? '' : 's') + ' de plan · ' + miles(v.n) + ' activación' + (v.n === 1 ? '' : 'es') + ' Pley/ExitLag';
+      else det = miles(u.n) + ' aumento' + (u.n === 1 ? '' : 's') + ' de plan\n' + miles(v.n) + ' activación' + (v.n === 1 ? '' : 'es') + ' Pley/ExitLag';
       return { value: miles(u.n) + (u.n === 1 ? ' upgrade' : ' upgrades') + ' · ' + miles(v.n) + ' SVA', size: 13, sub: det };
     }
     function paginaIndicadores(a, b, cmp, sinChipB) {
@@ -132,13 +133,13 @@
       ], { x: 0.72, y: 1.3, w: 12, h: 0.28, valign: 'middle' });
       var cw = 4.0, ch = 1.66, gx = 0.17, gy = 0.13, x0 = 0.45, y0 = 1.72;
       var X = function (c) { return x0 + c * (cw + gx); }, Y = function (r) { return y0 + r * (ch + gy); };
-      card(s, X(0), Y(0), cw, ch, { label: 'Índice de resolución SGU', chip: 'sgu', value: pct(F.irSGU.pct), unit: miles(F.irSGU.num) + ' de ' + miles(F.irSGU.den), sub: miles(F.irSGU.fcr) + ' resueltos en 1er contacto · ' + miles(F.irSGU.escaladosPIA) + ' escalados por PIA · ' + miles(F.irSGU.creadosPIA) + ' creados por PIA' });
+      card(s, X(0), Y(0), cw, ch, { label: 'Índice de resolución SGU', chip: 'sgu', value: pct(F.irSGU.pct), unit: miles(F.irSGU.num) + ' de ' + miles(F.irSGU.den), sub: miles(F.irSGU.fcr) + ' resueltos en 1er contacto\n' + miles(F.irSGU.resPIA) + ' creados por PIA\n' + miles(F.irSGU.resOtras) + ' creados por otras unidades' });
       card(s, X(1), Y(0), cw, ch, { label: 'Resolución en 1er contacto (FCR)', chip: 'pia', value: pct(F.fcr.pct), unit: miles(F.fcr.n) + ' Casos', sub: 'de los ' + miles(F.fcr.den) + ' casos únicos tipificados por el PIA' });
-      card(s, X(2), Y(0), cw, ch, { label: 'Productividad del punto PIA', chip: 'pia', value: miles(F.productividad.casos) + ' Casos', size: 22, unit: miles(F.productividad.abonados) + ' abonados', sub: 'casos únicos tipificados por ' + R.cfg.sucursal + '; abonados = cédulas distintas' });
-      var sem = function (g) { var x = G[g].semana; return { value: pct(x.pct), sub: x.modo === 2 ? miles(x.num) + ' de ' + miles(x.den) + ' · ' + miles(x.solMisma) + ' de la semana + ' + miles(x.extra) + ' de la semana anterior (< 72 h lab.)' : miles(x.num) + ' de ' + miles(x.den) + ' abiertos · abiertos y solucionados en la semana' }; };
+      card(s, X(2), Y(0), cw, ch, { label: 'Productividad del punto PIA', chip: 'pia', value: miles(F.productividad.casos) + ' Casos', size: 22, sub: 'casos únicos tipificados por ' + R.cfg.sucursal });
+      var sem = function (g) { var x = G[g].semana; return { value: pct(x.pct), sub: x.modo === 2 ? miles(x.num) + ' de ' + miles(x.den) + ' · ' + miles(x.solMisma) + ' de la semana + ' + miles(x.extra) + ' de la semana anterior (< 72 h lab.)' : miles(x.num) + ' de ' + miles(x.den) + ' abiertos' }; };
       cardPar(s, X(0), Y(1), cw, ch, 'Tickets solucionados en la semana', R.ventana.corta + (R.semanaModo === 2 ? ' · opción 2' : ''), 'sgu', 'pais', sem('sgu'), sem('pais'), false);
       card(s, X(1), Y(1), cw, ch, { label: 'Satisfacción / NPS', tag: 'Trimestral', value: F.nps || '—', sub: F.nps ? '' : 'sin medición en este corte' });
-      var rei = function (g) { var x = G[g].reinc; return { value: miles(x.abonados), unit: 'Abonados', sub: miles(x.tickets) + ' tickets · ' + pct(x.pct) + ' de ' + miles(x.ftth) + ' seleccionados' }; };
+      var rei = function (g) { var x = G[g].reinc; return { value: miles(x.abonados), unit: 'Abonados', sub: miles(x.tickets) + ' tickets\n' + pct(x.pct) + ' de ' + miles(x.ftth) + ' seleccionados' }; };
       cardPar(s, X(2), Y(1), cw, ch, 'Reincidencia de fallas FTTH', '', a, b, rei(a), rei(b), sinChipB);
       cardComparativo(s, X(0), Y(2), cw, ch, cmp);
       cardPar(s, X(1), Y(2), cw, ch, 'Upgrades y SVA', 'Mensual', a, b, upgradesTexto(a), upgradesTexto(b), sinChipB);
@@ -197,16 +198,35 @@
         showLegend: true, legendPos: 'b', legendFontFace: FONT, legendFontSize: 9, catAxisHidden: true, valAxisHidden: true, valGridLine: { style: 'none' }, catGridLine: { style: 'none' }, barGapWidthPct: 30
       });
     }
+    function notaGestion(s, x, y, w, h) {
+      var Gs = F.irSGU.gestion, pc = function (n, d) { return d ? pct(n / d) : '-'; };
+      box(s, x, y, w, h);
+      var T = function (t) { return { text: t, options: { bold: true, color: C.purple, fontSize: 12.5, breakLine: true, paraSpaceBefore: 9 } }; };
+      var S = function (t) { return { text: t, options: { bold: true, color: C.hot, fontSize: 8.5, breakLine: true, paraSpaceBefore: 6 } }; };
+      var Li = function (a, b) { return [{ text: a + ': ', options: { bold: true, color: C.ink, fontSize: 10 } }, { text: b, options: { color: C.ink, fontSize: 10, breakLine: true, paraSpaceBefore: 2 } }]; };
+      var esc = Gs.escPIA === null ? 'sin dato (vuelva a cargar el GLPI con la columna "Asignado a - Técnico")' : pc(Gs.escPIA, Gs.sgu) + ' de los tickets SGU (' + miles(Gs.escPIA) + ' de ' + miles(Gs.sgu) + ')';
+      var runs = [T('GESTIÓN PIA'), S('GENERAN TICKET')]
+        .concat(Li('Creados', pc(Gs.pia, Gs.sgu) + ' de los tickets SGU (' + miles(Gs.pia) + ' de ' + miles(Gs.sgu) + ')'))
+        .concat(Li('Escalados', esc))
+        .concat([S('NO GENERAN TICKET')])
+        .concat(Li('Resueltos en 1er. contacto', miles(F.fcr.n) + ' casos'))
+        .concat(Li('Estatus de un reporte', miles(F.estatus) + ' casos'))
+        .concat([T('GESTIÓN OTRAS UNIDADES')])
+        .concat(Li('Creados', pc(Gs.otras, Gs.sgu) + ' de los tickets SGU (' + miles(Gs.otras) + ' de ' + miles(Gs.sgu) + ')'))
+        .concat(Li('Escalados a Contratista San Agustín', pc(Gs.escCSA, Gs.otras) + ' de los tickets (' + miles(Gs.escCSA) + ' de ' + miles(Gs.otras) + ')'))
+        .concat(Li('Escalados a otras unidades', pc(Gs.escOtrasU, Gs.otras) + ' de los tickets (' + miles(Gs.escOtrasU) + ' de ' + miles(Gs.otras) + ')'));
+      runs[0].options.paraSpaceBefore = 0;
+      txt(s, runs, { x: x + 0.14, y: y + 0.08, w: w - 0.28, h: h - 0.16, valign: 'top', fit: 'shrink', fontFace: FONT });
+    }
     function laminaCanal() {
       var s = base('ATC · Canal de creación de casos SGU - GLPI');
       var cw = 4.0, x0 = 0.45, gx = 0.17;
-      card(s, x0, 1.45, cw, 1.4, { label: 'Creados por el PIA', chip: 'pia', value: pct(G.sgu.creados ? G.pia.creados / G.sgu.creados : null), unit: E.tickets(G.pia.creados), sub: 'de los ' + miles(G.sgu.creados) + ' tickets SGU, ' + miles(G.pia.creados) + ' fueron creados en PIA' });
+      card(s, x0, 1.45, cw, 1.4, { label: 'Creados por el PIA', chip: 'pia', value: pct(G.sgu.creados ? G.pia.creados / G.sgu.creados : null), unit: E.tickets(G.pia.creados), sub: 'de los ' + miles(G.sgu.creados) + ' tickets SGU\n' + miles(G.pia.creados) + ' fueron creados en PIA' });
       card(s, x0 + cw + gx, 1.45, cw, 1.4, { label: 'Creados en otros canales', chip: 'otras', value: pct(G.sgu.creados ? G.otras.creados / G.sgu.creados : null), unit: E.tickets(G.otras.creados), sub: 'de los ' + miles(G.sgu.creados) + ' tickets SGU en GLPI' });
       card(s, x0 + 2 * (cw + gx), 1.45, cw, 1.4, { label: 'Reincidencia de clientes FTTH', chip: 'sgu', value: miles(G.sgu.reinc.abonados), unit: 'Abonados · ' + miles(G.sgu.reinc.tickets) + ' tickets', sub: 'clientes con 2 o más tickets FTTH en SGU' });
       barra100(s, 0.4, 3.05, 8.6, 1.75, 'Tickets SGU por canal de creación', [{ label: L.pia, n: G.pia.creados, color: C.hot }, { label: L.otras, n: G.otras.creados, color: C.purple }], 0);
       barra100(s, 0.4, 4.95, 8.6, 1.75, 'Peso de San Agustín en el total país', [{ label: L.sgu, n: G.sgu.creados, color: C.hot }, { label: 'Resto del país', n: G.pais.creados, color: C.purple }], 1);
-      var pesoSGU = G.sgu.creados / (G.sgu.creados + G.pais.creados);
-      note(s, 9.3, 3.35, 3.6, 3.35, 'El PIA creó el ' + pct(G.sgu.creados ? G.pia.creados / G.sgu.creados : null) + ' de los tickets SGU (' + miles(G.pia.creados) + ' de ' + miles(G.sgu.creados) + '). Escaló ' + miles(F.ir.escalados) + ' casos de SGU a la contratista San Agustín. Además, el PIA atendió ' + miles(F.estatus) + ' consultas de estatus que no generan ticket, y en primer contacto resolvió ' + miles(F.fcr.n) + ' casos.\n\nPor su lado, San Agustín generó el ' + (Math.round(pesoSGU * 1000) / 10).toLocaleString('es-VE') + '% de los tickets del país en el período (' + miles(G.sgu.creados) + ' de ' + miles(G.sgu.creados + G.pais.creados) + ').');
+      notaGestion(s, 9.3, 3.05, 3.6, 3.65);
     }
 
     /* ---------- 7-8. Productividad ---------- */

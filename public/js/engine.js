@@ -162,6 +162,7 @@
     apertura: ['Fecha de apertura'], solucion: ['Fecha de solución', 'Fecha de solucion'], cierre: ['Fecha de cierre'],
     solicitante: ['Solicitante - Solicitante', 'Solicitante'],
     grupo: ['Asignado a - Grupo de técnicos', 'Asignado a - Grupo de tecnicos', 'Grupo de técnicos'],
+    tecnico: ['Asignado a - Técnico', 'Asignado a - Tecnico'],
     descripcion: ['Descripción', 'Descripcion'],
     cliente: ['Complementos - Datos Clientes - Nombre Cliente', 'Nombre Cliente']
   };
@@ -205,6 +206,7 @@
         cierre: i.cierre !== undefined ? parseDate(row[i.cierre]) : null,
         solicitante: row[i.solicitante] == null ? '' : String(row[i.solicitante]),
         grupo: row[i.grupo] == null ? '' : String(row[i.grupo]),
+        tecnico: i.tecnico !== undefined ? (row[i.tecnico] == null ? '' : String(row[i.tecnico])) : null,
         descripcion: i.descripcion !== undefined && row[i.descripcion] != null && necesitaDescripcion(cat) ? fixText(row[i.descripcion]) : '',
         cliente: i.cliente !== undefined && row[i.cliente] != null ? fixText(row[i.cliente]).trim() : '',
         cuentaDesc: i.descripcion !== undefined ? cuentaDeDescripcion(row[i.descripcion]) : ''
@@ -446,9 +448,21 @@
       estatus: estatusN, estatusTodas: estatusTodas,
       nps: cfg.nps || ''
     };
-    /* Índice de resolución SGU = (tickets SGU solucionados en GLPI + casos resueltos en 1er contacto) ÷ (tickets SGU creados + casos resueltos en 1er contacto) */
-    var sguL = porGrupo.sgu.lista, sguSol = porGrupo.sgu.solucionados, sguCre = porGrupo.sgu.creados;
+    /* Índice de resolución SGU = (tickets SGU resueltos en GLPI + casos resueltos en 1er contacto) ÷ (tickets SGU creados + casos resueltos en 1er contacto)
+       resuelto = tiene Fecha de solución (sin importar el estado); desglose del numerador: 1er contacto, creados por el PIA, creados por otras unidades */
+    var esPIA = function (t) { return eq(t.raw.solicitante, cfg.piaSolicitante); };
+    /* Gestión PIA / otras unidades (lámina de canal de creación):
+       escalado por PIA = ticket SGU no creado por el PIA cuyo técnico asignado (alguna línea) es el PIA;
+       otras unidades: escalado a Contratista San Agustín o a otra unidad según el grupo técnico asignado (sin grupo no cuenta como escalado) */
+    var tecPIA = function (t) { return grpLineas(t.raw.tecnico).some(function (x) { return eq(x, cfg.piaSolicitante); }); };
+    var otrL = porGrupo.otras.lista, conTecnico = porGrupo.sgu.lista.every(function (t) { return t.raw.tecnico !== null && t.raw.tecnico !== undefined; });
+    var escPIAL = conTecnico ? otrL.filter(tecPIA) : null;
+    var escCSA = otrL.filter(function (t) { return t.grpL === 'Contratista San Agustín'; }), escOtrU = otrL.filter(function (t) { return t.grpL !== 'Contratista San Agustín' && t.grpL !== SIN_GRUPO; });
+    var sguL = porGrupo.sgu.lista, sguResL = sguL.filter(function (t) { return t.raw.solucion !== null; }), sguSol = sguResL.length, sguCre = porGrupo.sgu.creados;
+    var resPIA = sguResL.filter(esPIA).length;
     fijos.irSGU = { num: sguSol + fcr, den: sguCre + fcr, pct: sguCre + fcr ? (sguSol + fcr) / (sguCre + fcr) : null, solucionados: sguSol, creados: sguCre, fcr: fcr,
+      resPIA: resPIA, resOtras: sguSol - resPIA,
+      gestion: { sgu: porGrupo.sgu.creados, pia: porGrupo.pia.creados, otras: otrL.length, escPIA: escPIAL ? escPIAL.length : null, escCSA: escCSA.length, escOtrasU: escOtrU.length, sinGrupo: otrL.length - escCSA.length - escOtrU.length },
       escaladosPIA: escFilas.length, creadosPIA: porGrupo.pia.creados };
 
     /* --- ventana semanal --- */
@@ -830,13 +844,14 @@
             regP('Escalados con número que no está en GLPI', escCruce.filter(function (c) { return c.fila.ticket && !c.ticket; }).map(function (c) { return c.fila; }))];
           break;
         case 'irSGU':
-          var IS = fijos.irSGU, solL = sguL.filter(function (t) { return t.res; });
+          var IS = fijos.irSGU, solL = sguL.filter(function (t) { return t.raw.solucion !== null; });
+          var solPIA = solL.filter(function (t) { return eq(t.raw.solicitante, cfg.piaSolicitante); }), solOtr = solL.filter(function (t) { return !eq(t.raw.solicitante, cfg.piaSolicitante); });
           e.titulo = 'Índice de resolución SGU'; e.valor = pct(IS.pct) + ' · ' + miles(IS.num) + ' de ' + miles(IS.den);
-          e.definicion = 'Todo lo que entró por SGU y se resolvió: tickets SGU solucionados en GLPI más los casos que el PIA resolvió en primer contacto (sin ticket), sobre los tickets SGU creados más esos mismos casos de primer contacto.';
-          e.filtros = [filtroPeriodoGLPI, 'SGU total: ' + DEF_G.sgu + '.', 'Solucionado: estado Resuelto o Cerrado.', filtroSA, filtroPeriodoTip, filtroDup];
-          e.pasos = ['Tickets SGU solucionados: ' + miles(IS.solucionados) + ' de ' + miles(IS.creados) + ' creados.', 'Resueltos en 1er contacto (Tipificador): ' + miles(IS.fcr) + '.', 'Resultado: (' + miles(IS.solucionados) + ' + ' + miles(IS.fcr) + ') ÷ (' + miles(IS.creados) + ' + ' + miles(IS.fcr) + ') = ' + pct(IS.pct) + '.',
-            'Para referencia: el PIA escaló ' + miles(IS.escaladosPIA) + ' casos (Tipificador) y creó ' + miles(IS.creadosPIA) + ' tickets SGU en GLPI.'];
-          e.registros = [regT('Tickets SGU solucionados', solL), regT('Tickets SGU creados', sguL), regP('Resueltos en 1er contacto', fcrFilas)];
+          e.definicion = 'Numerador: todos los tickets SGU de GLPI resueltos (con Fecha de solución) más los casos de San Agustín con Estatus "' + cfg.fcrStatus + '". Denominador: todos los tickets SGU de GLPI más esos mismos casos de 1er contacto.';
+          e.filtros = [filtroPeriodoGLPI, 'SGU: ' + DEF_G.sgu + '.', 'Resuelto: tiene Fecha de solución (no vacía), sin importar el estado.', 'Creado por PIA: SGU y Solicitante "' + cfg.piaSolicitante + '". Creado por otras unidades: SGU con otro solicitante.', filtroSA, filtroPeriodoTip, filtroDup];
+          e.pasos = ['Resueltos en 1er contacto (Tipificador): ' + miles(IS.fcr) + '.', 'Tickets SGU resueltos creados por PIA: ' + miles(IS.resPIA) + '.', 'Tickets SGU resueltos creados por otras unidades: ' + miles(IS.resOtras) + '.',
+            'Numerador: ' + miles(IS.fcr) + ' + ' + miles(IS.resPIA) + ' + ' + miles(IS.resOtras) + ' = ' + miles(IS.num) + '.', 'Denominador: ' + miles(IS.creados) + ' tickets SGU + ' + miles(IS.fcr) + ' de 1er contacto = ' + miles(IS.den) + '.', 'Resultado: ' + miles(IS.num) + ' ÷ ' + miles(IS.den) + ' = ' + pct(IS.pct) + '.'];
+          e.registros = [regP('Resueltos en 1er contacto', fcrFilas), regT('Tickets SGU resueltos · creados por PIA', solPIA), regT('Tickets SGU resueltos · creados por otras unidades', solOtr), regT('Tickets SGU (denominador)', sguL)];
           break;
         case 'fcr':
           e.titulo = 'Resolución en 1er contacto (FCR)'; e.valor = pct(fijos.fcr.pct) + ' · ' + miles(fcr) + ' casos';
