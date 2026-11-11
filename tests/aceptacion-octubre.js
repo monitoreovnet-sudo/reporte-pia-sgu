@@ -53,14 +53,15 @@ chk('PIA vs país',C.pia_pais.valor+' a favor de '+R.etiquetas[C.pia_pais.ganado
 const otro=R.tiempoCategoria.find(r=>r.otro); chk('Otro país (moda de 0 h no se muestra)',otro.pais.texto,'P: 3 días 5 h');
 const wifi=R.productividad.find(r=>r.label==='FTTH > Cambio de clave WiFi'); chk('WiFi país',wifi.pais.creados+'/'+wifi.pais.solucionados,'803/739');
 chk('Homologadas',R.controles.homologadas.length,39);
+// Desde el 10/11: resueltos, acumulados y gestión solo cuentan tickets abiertos desde el primer día de la semana (opción 1).
 const J=G.sgu.jornada.filas;
 chk('Ventana',R.ventana.desde+'-'+R.ventana.hasta,'20/10/2026-27/10/2026');
 chk('Día 20/10',J[0].dia,'Martes');
 chk('SGU abiertos',J.map(f=>f.abiertos).join(','),'11,6,10,11,4,6,7,24');
-chk('SGU resueltos',J.map(f=>f.resueltos).join(','),'11,15,14,15,1,1,6,14');
+chk('SGU resueltos',J.map(f=>f.resueltos).join(','),'0,3,7,8,1,1,4,14');
 chk('SGU pend acum',J.map(f=>f.pendAcc).join(','),'11,14,17,20,23,28,31,41');
-chk('Gestión SGU',[G.sgu.gestion.abiertos,G.sgu.gestion.resueltos,G.sgu.gestion.cerrados].join('/'),'79/77/74');
-chk('Gestión país',[G.pais.gestion.abiertos,G.pais.gestion.resueltos,G.pais.gestion.cerrados].join('/'),'2973/3404/3370');
+chk('Gestión SGU',[G.sgu.gestion.abiertos,G.sgu.gestion.resueltos,G.sgu.gestion.cerrados].join('/'),'79/38/74');
+chk('Gestión país',[G.pais.gestion.abiertos,G.pais.gestion.resueltos,G.pais.gestion.cerrados].join('/'),'2973/2285/3370');
 chk('Rony va a revisión humana (cédulas y contratos distintos)',R.revision.pendientes.some(d=>/CHACON/.test(d.nombre)),true);
 // Reincidencia: la sección 9 incluía Cobranzas Masivas > FTTH; desde el 29/10 nunca cuenta, por eso esos valores ya no se comparan (se imprimen abajo).
 chk('PIA cambios de plan',G.pia.upgrades.cambiosPlan+'/'+G.pia.upgrades.bajas,'3/3');

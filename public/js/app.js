@@ -538,16 +538,22 @@
         var cs = semana ? [['abiertos', num(f.abiertos)], ['pendientes', num(f.pendientes)], ['resueltos', num(f.resueltos)], ['pendAcc', num(f.pendAcc)], ['resAcc', num(f.resAcc)], ['pct', pct(f.pct)]] : [['abiertos', num(f.abiertos)], ['pendientes', num(f.pendientes)], ['mismoDia', num(f.mismoDia)], ['resSemana', num(f.resSemana)], ['pct', pct(f.pct)]];
         return cs.map(function (c) { return { v: c[1], x: { k: 'jor', g: g, d: d, c: c[0] } }; });
       };
+      var filaArr = function (f, g) {
+        var cs = semana ? [['abiertos', num(f.abiertos)], ['pendientes', num(f.pendientes)], [null, '-'], ['pendAcc', num(f.pendAcc)], [null, '-'], [null, '-']] : [['abiertos', num(f.abiertos)], ['pendientes', num(f.pendientes)], [null, '-'], [null, '-'], [null, '-']];
+        return cs.map(function (c) { return c[0] ? { v: c[1], x: { k: 'jor', g: g, d: -2, c: c[0] } } : c[1]; });
+      };
       var jt = function (a, b) {
         var h1 = '<th rowspan="2">Día</th><th rowspan="2">Fecha</th><th colspan="' + cols.length + '">' + esc(R.etiquetasLargas[a]) + '</th><th colspan="' + cols.length + '">' + esc(R.etiquetasLargas[b]) + '</th>';
         var h2 = cols.concat(cols).map(function (c) { return '<th>' + c + '</th>'; }).join('');
         var rows = G[a].jornada.filas.map(function (f, k) { return { cells: [f.dia, f.fecha.slice(0, 5)].concat(fila(f, a, k), fila(G[b].jornada.filas[k], b, k)) }; });
+        if (G[a].jornada.arrastre) rows.unshift({ cells: ['Semana pasada', '< 72 h'].concat(filaArr(G[a].jornada.arrastre, a), filaArr(G[b].jornada.arrastre, b)) });
         rows.push({ tot: true, cells: ['Total semanal', ''].concat(fila(G[a].jornada.total, a, -1), fila(G[b].jornada.total, b, -1)) });
         return table(h1, h2, rows);
       };
+      var notaSem = ' · resueltos y acumulados: solo tickets abiertos desde el ' + R.ventana.desde + (R.semanaModo === 2 ? ', más los de la semana pasada solucionados en < 72 h laborales (opción 2)' : ' (opción 1)');
       var J = G.sgu.jornada.filas, lab = J.map(function (f) { return f.dia.slice(0, 3) + ' ' + f.fechaCorta; });
-      body = tile('c12', (semana ? 'Tickets abiertos y solucionados' : 'Abiertos y solucionados el mismo día') + ' · SGU total vs. país', R.ventana.desde + ' al ' + R.ventana.hasta, jt('sgu', 'pais')) +
-        tile('c12', (semana ? 'Tickets abiertos y solucionados' : 'Abiertos y solucionados el mismo día') + ' · PIA vs. SGU otras unidades', R.ventana.desde + ' al ' + R.ventana.hasta, jt('pia', 'otras'));
+      body = tile('c12', (semana ? 'Tickets abiertos y solucionados' : 'Abiertos y solucionados el mismo día') + ' · SGU total vs. país', R.ventana.desde + ' al ' + R.ventana.hasta + notaSem, jt('sgu', 'pais')) +
+        tile('c12', (semana ? 'Tickets abiertos y solucionados' : 'Abiertos y solucionados el mismo día') + ' · PIA vs. SGU otras unidades', R.ventana.desde + ' al ' + R.ventana.hasta + notaSem, jt('pia', 'otras'));
       if (semana) body += tile('c12', 'Abiertos vs. resueltos por día', 'SGU total', C.columns({ title: 'Abiertos vs resueltos', labels: lab, series: [{ name: 'Abiertos', color: '#B28DE0', values: J.map(function (f) { return f.abiertos; }) }, { name: 'Resueltos', color: COLORS.brand, values: J.map(function (f) { return f.resueltos; }) }] }));
       else body += tile('c12', 'Gestión en la última semana', R.ventana.desde + ' al ' + R.ventana.hasta + ' · cerrados = fecha de cierre dentro de la semana', table('<th>Grupo</th><th>Abiertos</th><th>Resueltos</th><th>Cerrados</th><th>Resueltos el mismo día</th><th>% jornada</th>', '', GS.map(function (g) { var x = G[g].gestion; return { cells: [L[g], { v: num(x.abiertos), x: { k: 'gestion', g: g, c: 'abiertos' } }, { v: num(x.resueltos), x: { k: 'gestion', g: g, c: 'resueltos' } }, { v: num(x.cerrados), x: { k: 'gestion', g: g, c: 'cerrados' } }, { v: num(x.mismoDia), x: { k: 'gestion', g: g, c: 'mismo' } }, { v: pct(x.pct), x: { k: 'gestion', g: g, c: 'pct' } }] }; })));
     } else if (i === 7) {
@@ -936,11 +942,13 @@
     var ja = [['Día', 'Fecha']];
     GS.forEach(function (g) { ja[0].push(LL[g] + ' · abiertos', 'pendientes', 'resueltos', 'pend. acum.', 'resuelto acum.', '% jornada'); });
     for (var i = 0; i < G.sgu.jornada.filas.length; i++) { var r = [G.sgu.jornada.filas[i].dia, G.sgu.jornada.filas[i].fecha]; GS.forEach(function (g) { var f = G[g].jornada.filas[i]; r.push(f.abiertos, f.pendientes, f.resueltos, f.pendAcc, f.resAcc, f.pct); }); ja.push(r); }
+    if (G.sgu.jornada.arrastre) { var ra = ['Semana pasada (< 72 h laborales)', G.sgu.jornada.arrastre.fecha]; GS.forEach(function (g) { var f = G[g].jornada.arrastre; ra.push(f.abiertos, f.pendientes, '', f.pendAcc, '', ''); }); ja.splice(1, 0, ra); }
     var tr = ['Total semanal', '']; GS.forEach(function (g) { var t = G[g].jornada.total; tr.push(t.abiertos, t.pendientes, t.resueltos, t.pendAcc, t.resAcc, t.pct); }); ja.push(tr);
     add('5.4 Semana', ja, [12, 12]);
     var md = [['Día', 'Fecha']];
     GS.forEach(function (g) { md[0].push(LL[g] + ' · abiertos', 'pendientes', 'resueltos mismo día', 'resueltos de esa semana', '% jornada'); });
     for (var j = 0; j < G.sgu.jornada.filas.length; j++) { var r2 = [G.sgu.jornada.filas[j].dia, G.sgu.jornada.filas[j].fecha]; GS.forEach(function (g) { var f = G[g].jornada.filas[j]; r2.push(f.abiertos, f.pendientes, f.mismoDia, f.resSemana, f.pct); }); md.push(r2); }
+    if (G.sgu.jornada.arrastre) { var rb = ['Semana pasada (< 72 h laborales)', G.sgu.jornada.arrastre.fecha]; GS.forEach(function (g) { var f = G[g].jornada.arrastre; rb.push(f.abiertos, f.pendientes, '', '', ''); }); md.splice(1, 0, rb); }
     var tr2 = ['Total semanal', '']; GS.forEach(function (g) { var t = G[g].jornada.total; tr2.push(t.abiertos, t.pendientes, t.mismoDia, t.resSemana, t.pct); }); md.push(tr2);
     add('5.5 Mismo día', md, [12, 12]);
     add('5.6 Gestión semanal', [['Grupo', 'Abiertos', 'Resueltos', 'Cerrados', 'Resueltos mismo día', '% jornada']].concat(GS.map(function (g) { var x = G[g].gestion; return [L[g], x.abiertos, x.resueltos, x.cerrados, x.mismoDia, x.pct]; })), [22, 12, 12, 12, 18, 12]);

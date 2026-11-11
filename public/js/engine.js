@@ -480,23 +480,29 @@
       var mx = modoSemana === 2 ? m2 : m1;
       P.semana = { modo: modoSemana, abiertos: enV.length, cerradosMisma: cerradosMisma, solucionadosTodos: solSem.length, solMisma: solMisma, solPrevias: solSem.length - solMisma,
         extra: ext.length, prevResueltos: prevSem.filter(EN[g]).length, num: mx.num, den: mx.den, pct: mx.pct, m1: m1, m2: m2, solucionados: mx.num };
+      /* tablas de la semana: el universo son los tickets abiertos desde el primer día de la semana;
+         en la opción 2 se suman los de la semana pasada solucionados en la semana en < 72 h laborales (fila "Semana pasada") */
+      var U = enV.concat(modoSemana === 2 ? ext : []);
       var accR = 0, filas = dias.map(function (D) {
-        var ab = 0, mismo = 0, resD = 0, pendAcc = 0, resSem = 0;
-        L.forEach(function (t) {
-          if (t.dAp === D) { ab++; if (t.dSol === D) mismo++; }
-          if (t.dSol === D) { resD++; if (t.dAp >= wIni && t.dAp <= D) resSem++; }
-          if (t.dAp >= wIni && t.dAp <= D && !(t.dSol !== null && t.dSol <= D)) pendAcc++;
+        var ab = 0, mismo = 0, resD = 0, pendAcc = 0;
+        L.forEach(function (t) { if (t.dAp === D) { ab++; if (t.dSol === D) mismo++; } });
+        U.forEach(function (t) {
+          if (t.dSol === D) resD++;
+          if (t.dAp <= D && !(t.dSol !== null && t.dSol <= D)) pendAcc++;
         });
         accR += resD;
-        return { serial: D, dia: dayName(D), fecha: fmtDate(D), fechaCorta: fmtDM(D), abiertos: ab, pendientes: ab - mismo, resueltos: resD, mismoDia: mismo, resSemana: resSem, pendAcc: pendAcc, resAcc: accR, pct: ab ? mismo / ab : null };
+        return { serial: D, dia: dayName(D), fecha: fmtDate(D), fechaCorta: fmtDM(D), abiertos: ab, pendientes: ab - mismo, resueltos: resD, mismoDia: mismo, resSemana: resD, pendAcc: pendAcc, resAcc: accR, pct: ab ? mismo / ab : null };
       });
+      var arrastre = modoSemana === 2 ? { arrastre: true, serial: null, dia: 'Semana pasada', fecha: fmtDate(pIni) + ' al ' + fmtDate(wIni - 1), fechaCorta: '< ' + LAB_LIMITE + ' h', abiertos: ext.length, pendientes: ext.length, resueltos: 0, mismoDia: 0, resSemana: 0, pendAcc: ext.length, resAcc: 0, pct: null } : null;
       var tot = filas.reduce(function (a, f) { a.abiertos += f.abiertos; a.pendientes += f.pendientes; a.resueltos += f.resueltos; a.mismoDia += f.mismoDia; a.resSemana += f.resSemana; return a; }, { abiertos: 0, pendientes: 0, resueltos: 0, mismoDia: 0, resSemana: 0 });
-      tot.pendAcc = filas[filas.length - 1].pendAcc; tot.resAcc = filas[filas.length - 1].resAcc; tot.pct = tot.abiertos ? tot.mismoDia / tot.abiertos : null;
+      tot.abiertosSemana = tot.abiertos; tot.pct = tot.abiertos ? tot.mismoDia / tot.abiertos : null; // % en jornada: solo tickets abiertos en la semana
+      if (arrastre) { tot.abiertos += arrastre.abiertos; tot.pendientes += arrastre.pendientes; }
+      tot.pendAcc = filas[filas.length - 1].pendAcc; tot.resAcc = filas[filas.length - 1].resAcc;
       var pico = filas.reduce(function (a, f) { return f.abiertos > (a ? a.abiertos : -1) ? f : a; }, null);
-      P.jornada = { filas: filas, total: tot, pico: pico };
+      P.jornada = { filas: filas, total: tot, pico: pico, arrastre: arrastre };
       P.gestion = {
-        abiertos: enV.length,
-        resueltos: L.filter(function (t) { return t.dSol !== null && t.dSol >= wIni && t.dSol < wFin; }).length,
+        abiertos: U.length,
+        resueltos: mx.num,
         cerrados: L.filter(function (t) { return t.dCie !== null && t.dCie >= wIni && t.dCie < wFin; }).length,
         mismoDia: tot.mismoDia, pct: tot.pct
       };
@@ -964,37 +970,43 @@
           }
           break;
         case 'jor':
-          var J = porGrupo[g].jornada, dia = x.d >= 0 ? J.filas[x.d] : null, D = dia ? dia.serial : null;
+          var J = porGrupo[g].jornada, SWj = porGrupo[g].semana, dia = x.d >= 0 ? J.filas[x.d] : null, D = dia ? dia.serial : null, esArr = x.d === -2;
           var etiq = { abiertos: 'Abiertos', pendientes: 'Pendientes', resueltos: 'Resueltos', mismoDia: 'Resueltos el mismo día', resSemana: 'Resueltos de esa semana', pendAcc: 'Pendiente acumulado', resAcc: 'Resuelto acumulado', pct: '% en jornada' }[x.c];
-          var desde = wIni, hasta = D === null ? wFin - 1 : D;
-          var abiertosD = L.filter(function (t) { return D === null ? (t.dAp >= wIni && t.dAp < wFin) : t.dAp === D; });
-          var mismo = abiertosD.filter(function (t) { return t.dSol === t.dAp; });
-          var resD = L.filter(function (t) { return D === null ? (t.dSol !== null && t.dSol >= wIni && t.dSol < wFin) : t.dSol === D; });
-          var pendAcc = L.filter(function (t) { return t.dAp >= desde && t.dAp <= hasta && !(t.dSol !== null && t.dSol <= hasta); });
-          e.titulo = etiq + ' · ' + et + ' · ' + (dia ? dia.dia + ' ' + dia.fecha : 'Total semanal');
-          e.filtros = [et + ': ' + DEF_G[g] + '.', 'Semana: del ' + fmtDate(wIni) + ' al ' + fmtDate(wFin - 1) + '.', 'Resuelto = Estado Resuelto o Cerrado, por su Fecha de solución.'];
+          var extJ = SWj.modo === 2 ? prevSem.filter(EN[g]).filter(function (t) { return t.horasLab < LAB_LIMITE; }) : [];
+          var semJ = L.filter(function (t) { return t.dAp >= wIni && t.dAp < wFin; }), UJ = semJ.concat(extJ);
+          var hasta = D === null ? wFin - 1 : D;
+          var abiertosD = esArr ? extJ : D === null ? UJ : L.filter(function (t) { return t.dAp === D; });
+          var mismo = esArr ? [] : abiertosD.filter(function (t) { return t.dSol === t.dAp; });
+          var resD = esArr ? [] : UJ.filter(function (t) { return D === null ? (t.dSol !== null && t.dSol >= wIni && t.dSol < wFin) : t.dSol === D; });
+          var pendAcc = esArr ? extJ : UJ.filter(function (t) { return t.dAp <= hasta && !(t.dSol !== null && t.dSol <= hasta); });
+          var resAcc = esArr ? [] : UJ.filter(function (t) { return t.dSol !== null && t.dSol >= wIni && t.dSol <= hasta; });
+          var univ = 'tickets abiertos desde el primer día de la semana (' + fmtDate(wIni) + ')' + (SWj.modo === 2 ? ' más los abiertos la semana pasada que se solucionaron en la semana en menos de ' + LAB_LIMITE + ' horas laborales' : '');
+          e.titulo = etiq + ' · ' + et + ' · ' + (esArr ? 'Semana pasada (< ' + LAB_LIMITE + ' h laborales)' : dia ? dia.dia + ' ' + dia.fecha : 'Total semanal');
+          e.filtros = [et + ': ' + DEF_G[g] + '.', 'Semana: del ' + fmtDate(wIni) + ' al ' + fmtDate(wFin - 1) + '.', 'Indicador semanal: opción ' + SWj.modo + (SWj.modo === 2 ? ' (incluye semana pasada, < ' + LAB_LIMITE + ' h laborales de lunes a sábado ' + LAB_INI + ':00–' + LAB_FIN + ':00).' : ' (desde el inicio de la semana).'), 'Resuelto = Estado Resuelto o Cerrado, por su Fecha de solución. Resueltos y acumulados cuentan solo ' + univ + '.'];
           var defs = {
-            abiertos: ['Tickets con Fecha de apertura ' + (dia ? 'ese día' : 'en la semana') + '.', abiertosD.length, regT('Abiertos', abiertosD)],
-            pendientes: ['Abiertos ' + (dia ? 'ese día' : 'en la semana') + ' que no se resolvieron el mismo día de su apertura.', abiertosD.length - mismo.length, regT('Abiertos y no resueltos el mismo día', abiertosD.filter(function (t) { return t.dSol !== t.dAp; }))],
-            resueltos: ['Tickets con Fecha de solución ' + (dia ? 'ese día' : 'en la semana') + ', sin importar cuándo se abrieron.', resD.length, regT('Resueltos', resD)],
+            abiertos: [esArr ? 'Tickets abiertos la semana pasada (' + fmtDate(pIni) + ' al ' + fmtDate(wIni - 1) + ') y solucionados en la semana en menos de ' + LAB_LIMITE + ' horas laborales. Se suman a la base.' : D === null ? 'Base de la semana: ' + univ + '.' : 'Tickets con Fecha de apertura ese día.', abiertosD.length, regT('Abiertos', abiertosD)],
+            pendientes: [esArr ? 'Tickets de la semana pasada que entran a la semana sin solución.' : 'Abiertos ' + (dia ? 'ese día' : 'en la semana') + ' que no se resolvieron el mismo día de su apertura.', esArr ? extJ.length : (dia || J.total).pendientes, regT('Pendientes', esArr ? extJ : abiertosD.filter(function (t) { return t.dSol !== t.dAp; }))],
+            resueltos: ['Solucionados ' + (dia ? 'ese día' : 'en la semana') + ', de los ' + univ + '.', resD.length, regT('Resueltos', resD)],
             mismoDia: ['Abiertos y resueltos el mismo día.', mismo.length, regT('Resueltos el mismo día', mismo)],
-            resSemana: ['Tickets abiertos en la semana (desde el ' + fmtDate(wIni) + ') y solucionados ' + (dia ? 'ese día' : 'dentro de la semana') + '.', resD.filter(function (t) { return t.dAp >= wIni && t.dAp <= hasta; }).length, regT('Resueltos de esa semana', resD.filter(function (t) { return t.dAp >= wIni && t.dAp <= hasta; }))],
-            pendAcc: ['Tickets abiertos desde el inicio de la semana hasta ' + fmtDate(hasta) + ' que seguían sin solución al cierre de ese día.', pendAcc.length, regT('Pendientes acumulados', pendAcc)],
-            resAcc: ['Suma de "Resueltos" desde el inicio de la semana hasta ' + fmtDate(hasta) + '.', (dia || J.total).resAcc, regT('Resueltos acumulados', L.filter(function (t) { return t.dSol !== null && t.dSol >= wIni && t.dSol <= hasta; }))],
-            pct: ['Resueltos el mismo día ÷ abiertos.', pct(abiertosD.length ? mismo.length / abiertosD.length : null), regT('Abiertos', abiertosD)]
+            resSemana: ['Solucionados ' + (dia ? 'ese día' : 'en la semana') + ', de los ' + univ + '.', resD.length, regT('Resueltos de esa semana', resD)],
+            pendAcc: [esArr ? 'Tickets de la semana pasada que entran a la semana sin solución.' : 'De los ' + univ + ': abiertos hasta el ' + fmtDate(hasta) + ' que seguían sin solución al cierre de ese día.', pendAcc.length, regT('Pendientes acumulados', pendAcc)],
+            resAcc: ['Suma de "Resueltos" desde el primer día de la semana hasta el ' + fmtDate(hasta) + '.', esArr ? 0 : resAcc.length, regT('Resueltos acumulados', resAcc)],
+            pct: ['Resueltos el mismo día ÷ abiertos ' + (dia ? 'ese día' : 'en la semana') + ' (no incluye la semana pasada).', pct(esArr ? null : dia ? dia.pct : J.total.pct), regT('Abiertos', D === null ? semJ : abiertosD)]
           }[x.c];
           e.definicion = defs[0]; e.valor = String(typeof defs[1] === 'number' ? miles(defs[1]) : defs[1]);
-          e.pasos = x.c === 'pct' ? ['Abiertos: ' + abiertosD.length + '; resueltos el mismo día: ' + mismo.length + '.', 'Resultado: ' + mismo.length + ' ÷ ' + abiertosD.length + ' = ' + defs[1] + '.'] : [e.definicion + ' Resultado: ' + e.valor + '.'];
+          e.pasos = x.c === 'pct' && !esArr ? ['Abiertos: ' + (D === null ? semJ.length : abiertosD.length) + '; resueltos el mismo día: ' + mismo.length + '.', 'Resultado: ' + e.valor + '.'] : [e.definicion + ' Resultado: ' + e.valor + '.'];
           e.registros = [defs[2]]; break;
         case 'gestion':
-          var enW = L.filter(function (t) { return t.dAp >= wIni && t.dAp < wFin; });
+          var SWg = porGrupo[g].semana, extG = SWg.modo === 2 ? prevSem.filter(EN[g]).filter(function (t) { return t.horasLab < LAB_LIMITE; }) : [];
+          var enW = L.filter(function (t) { return t.dAp >= wIni && t.dAp < wFin; }), UG = enW.concat(extG);
+          var univG = 'tickets abiertos en la semana' + (SWg.modo === 2 ? ' más los de la semana pasada solucionados en la semana en menos de ' + LAB_LIMITE + ' horas laborales' : '');
           var sets = {
-            abiertos: ['Tickets con Fecha de apertura en la semana.', enW],
-            resueltos: ['Tickets con Fecha de solución en la semana (Estado Resuelto o Cerrado).', L.filter(function (t) { return t.dSol !== null && t.dSol >= wIni && t.dSol < wFin; })],
+            abiertos: ['Base de la semana: ' + univG + '.', UG],
+            resueltos: ['Solucionados en la semana (Estado Resuelto o Cerrado) de los ' + univG + '.', UG.filter(function (t) { return t.dSol !== null && t.dSol >= wIni && t.dSol < wFin; })],
             cerrados: ['Tickets con Fecha de cierre en la semana.', L.filter(function (t) { return t.dCie !== null && t.dCie >= wIni && t.dCie < wFin; })]
           }[x.c] || ['Resueltos el mismo día de su apertura ÷ abiertos en la semana.', enW.filter(function (t) { return t.dSol === t.dAp; })];
           e.titulo = 'Gestión en la última semana · ' + et; e.valor = x.c === 'pct' ? pct(porGrupo[g].gestion.pct) : miles(sets[1].length);
-          e.definicion = sets[0]; e.filtros = [et + ': ' + DEF_G[g] + '.', 'Semana: del ' + fmtDate(wIni) + ' al ' + fmtDate(wFin - 1) + '.'];
+          e.definicion = sets[0]; e.filtros = [et + ': ' + DEF_G[g] + '.', 'Semana: del ' + fmtDate(wIni) + ' al ' + fmtDate(wFin - 1) + '.', 'Indicador semanal: opción ' + SWg.modo + '.'];
           e.pasos = [sets[0] + ' Resultado: ' + e.valor + '.'];
           e.registros = [regT(e.titulo, sets[1])]; break;
         default:
