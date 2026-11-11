@@ -498,17 +498,17 @@
         kpar('Reincidencia de fallas FTTH', '', a, b, function (g) { var x = G[g].reinc; return { v: num(x.abonados), u: 'abonados', n: num(x.tickets) + ' tickets · ' + pct(x.pct) + ' de ' + num(x.ftth) + ' seleccionados' }; }, 'reinc') +
         '<div class="viz card c4 xable"' + xa({ k: 'cmp', id: CMPS[cmpIdx][2] }) + '><div class="t">Comparativo ' + esc(L[a]) + ' vs. ' + esc(L[b]) + '<i>Mensual</i></div><div class="v">' + esc(cmp.valor) + '</div>' + (cmp.ganador ? '<div class="n" style="color:var(--ink)">a favor de ' + chipH(cmp.ganador) + '</div>' : '') + '<div class="n">' + esc(cmp.detalle) + '</div></div>' +
         kpar('Upgrades y SVA', 'Mensual', a, b, upTxt, 'upgrades') +
-        kpar('Tiempo promedio de resolución', '', a, b, function (g) { return { v: E.fmtD(G[g].prom), n: num(G[g].solucionados) + ' tickets resueltos' + (G[g].moda ? ' · moda ' + E.fmtD(G[g].moda) : '') }; }, 'prom') +
+        kpar('Tiempo promedio de resolución', '', a, b, function (g) { return { v: E.fmtD(G[g].prom), n: num(G[g].solucionados) + ' tickets resueltos' + (G[g].modaTxt ? ' · moda ' + G[g].modaTxt : '') }; }, 'prom') +
         tile('c6', 'Tiempo promedio de resolución', 'por grupo', C.hbars({ title: 'Promedio por grupo', labels: GS.map(function (g) { return L[g]; }), labelW: 160, series: [{ name: 'Promedio', color: COLORS.brand, values: GS.map(function (g) { return G[g].prom || 0; }) }], fmt: function (v) { return E.fmtD(v); } })) +
         tile('c6', 'Creados y solucionados', 'en el período', C.hbars({ title: 'Creados y solucionados', labels: ['PIA', 'SGU otras unidades', 'SGU total'], labelW: 160, series: [{ name: 'Creados', color: COLORS.grey, values: [G.pia.creados, G.otras.creados, G.sgu.creados] }, { name: 'Solucionados', color: COLORS.brand, values: [G.pia.solucionados, G.otras.solucionados, G.sgu.solucionados] }], fmt: num }));
     } else if (i === 1) {
       var cats = R.tiempoCategoria.filter(function (r) { return !r.total; });
       var hh = h4('Categoría', ['Tickets resueltos', 'Moda o promedio']);
-      body = tile('c12', 'Tiempo de resolución por categoría', 'M: moda (valor más repetido, redondeado a la hora) · P: promedio · solo tickets resueltos', table(hh.h1, hh.h2, tiempoRows(R.tiempoCategoria, 'tiempoCategoria'))) +
+      body = tile('c12', 'Tiempo de resolución por categoría', 'M: moda (valor más repetido, redondeado a la hora; si hay empate: menor - mayor) · P: promedio · solo tickets resueltos', table(hh.h1, hh.h2, tiempoRows(R.tiempoCategoria, 'tiempoCategoria'))) +
         tile('c12', 'Promedio por categoría', 'SGU total vs. país', C.hbars({ title: 'Promedio por categoría', labels: cats.map(function (r) { return E.catCorta(r.label); }), labelW: 220, series: [{ name: 'SGU total', color: COLORS.hot, values: cats.map(function (r) { return r.sgu.prom || 0; }) }, { name: 'País', color: COLORS.brand, values: cats.map(function (r) { return r.pais.prom || 0; }) }], fmt: dias }));
     } else if (i === 2) {
       var hg = h4('Grupo técnico', ['Tickets resueltos', 'Moda o promedio']);
-      body = tile('c12', 'Tiempo de resolución por grupo técnico', 'M: moda · P: promedio · solo tickets resueltos', table(hg.h1, hg.h2, tiempoRows(R.tiempoGrupo, 'tiempoGrupo'))) +
+      body = tile('c12', 'Tiempo de resolución por grupo técnico', 'M: moda (si hay empate: menor - mayor) · P: promedio · solo tickets resueltos', table(hg.h1, hg.h2, tiempoRows(R.tiempoGrupo, 'tiempoGrupo'))) +
         (S.pdfMode ? '' : '<div class="c12 row"><button class="btn" id="xSinGrupo">' + ICONS.down + 'Descargar tickets sin grupo técnico asignado (' + num(R.sinGrupo.filas.length) + ')</button><span class="hint">Excel con los tickets del período que no tienen grupo técnico resolutorio, de todos los grupos (PIA, SGU otras unidades y País).</span></div>') +
         asignacionGruposHtml(R);
     } else if (i === 3) {
@@ -907,7 +907,7 @@
     fila('Solucionados', function (g) { return G[g].solucionados; });
     fila('% solucionado', function (g) { return G[g].pctSol; });
     fila('Tiempo promedio de resolución', function (g) { return E.fmtD(G[g].prom); });
-    fila('Moda (redondeada a la hora)', function (g) { return G[g].moda ? E.fmtD(G[g].moda) : '-'; });
+    fila('Moda (redondeada a la hora; empate: menor - mayor)', function (g) { return G[g].modaTxt || '-'; });
     fila('Indicador semanal usado', function (g) { return G[g].semana.modo === 2 ? 'Opción 2: incluye semana pasada (< 72 h laborales)' : 'Opción 1: desde el inicio de la semana'; });
     fila('Abiertos en la semana', function (g) { return G[g].semana.abiertos; });
     fila('… solucionados en la misma semana', function (g) { return G[g].semana.solMisma; });
@@ -931,7 +931,7 @@
     ind.forEach(function (r, i) { if (r[0] === 'Reincidencia FTTH: tickets seleccionados') nota(wsI, 'A' + (i + 1), R.seleccionTxt.ftth); });
     function tiempoSheet(name, first, list) {
       var aoa = [[first].concat(GS.reduce(function (a, g) { return a.concat([LL[g] + ' · resueltos', LL[g] + ' · moda o promedio', LL[g] + ' · promedio', LL[g] + ' · moda']); }, []))];
-      list.forEach(function (r) { aoa.push([r.label].concat(GS.reduce(function (a, g) { return a.concat([r[g].n, r[g].texto, r[g].n ? E.fmtD(r[g].prom) : '-', r[g].moda === null || r[g].moda === undefined ? '-' : E.fmtD(r[g].moda)]); }, []))); });
+      list.forEach(function (r) { aoa.push([r.label].concat(GS.reduce(function (a, g) { return a.concat([r[g].n, r[g].texto, r[g].n ? E.fmtD(r[g].prom) : '-', E.fmtModa(r[g]) || '-']); }, []))); });
       add(name, aoa, [55]);
     }
     tiempoSheet('5.1 Tiempo por categoría', 'Categoría', R.tiempoCategoria);

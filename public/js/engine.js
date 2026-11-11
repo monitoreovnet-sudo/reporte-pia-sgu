@@ -307,28 +307,27 @@
   }
 
   /* ---------- moda o promedio (3.4) ---------- */
-  function modaPromedio(lista) { // lista de segundos, en orden del archivo
-    if (!lista.length) return { n: 0, prom: null, moda: null };
-    var sum = 0, cnt = {}, first = {};
-    lista.forEach(function (s, i) {
-      sum += s;
-      var r = Math.round(s / 3600) * 3600;
-      cnt[r] = (cnt[r] || 0) + 1;
-      if (first[r] === undefined) first[r] = i;
-    });
-    var moda = null, best = 1;
-    Object.keys(cnt).forEach(function (k) {
-      var c = cnt[k];
-      if (c > best || (c === best && c >= 2 && moda !== null && first[k] < first[moda])) { best = c; moda = +k; }
-    });
-    if (best < 2) moda = null;
-    return { n: lista.length, prom: sum / lista.length, moda: moda };
+  /* moda: tiempo más repetido (2 o más veces) después de redondear cada ticket a la hora más cercana.
+     Si varias horas empatan en la frecuencia máxima, se informan la menor (mejor escenario) y la mayor (peor escenario). */
+  function modaPromedio(lista) {
+    if (!lista.length) return { n: 0, prom: null, moda: null, modaMax: null, modas: [] };
+    var sum = 0, cnt = {};
+    lista.forEach(function (s) { sum += s; var r = Math.round(s / 3600); cnt[r] = (cnt[r] || 0) + 1; });
+    var best = 0; Object.keys(cnt).forEach(function (k) { if (cnt[k] > best) best = cnt[k]; });
+    var modas = best >= 2 ? Object.keys(cnt).filter(function (k) { return cnt[k] === best; }).map(Number).sort(function (a, b) { return a - b; }) : [];
+    return { n: lista.length, prom: sum / lista.length, moda: modas.length ? modas[0] * 3600 : null, modaMax: modas.length ? modas[modas.length - 1] * 3600 : null, modas: modas, modaFrec: modas.length ? best : 0 };
+  }
+  /* texto de la moda: "12h" si es única; "8h - 73h" si hay empate (menor - mayor) */
+  function fmtModa(mp) {
+    if (!mp || mp.moda === null || mp.moda === undefined) return null;
+    var a = Math.round(mp.moda / 3600), b = Math.round((mp.modaMax === null || mp.modaMax === undefined ? mp.moda : mp.modaMax) / 3600);
+    return a === b ? a + 'h' : a + 'h - ' + b + 'h';
   }
   /* Celda de tiempo: la moda (M) o el promedio (P). Nunca se muestra un "0 h": una moda o un promedio de 0 horas se omite. */
   function esCero(x) { return x === null || x === undefined || Math.round(x) < 3600; }
   function celdaTiempo(mp, esTotal) {
     if (!mp || !mp.n) return '-';
-    var M = mp.moda === null || mp.moda === 0 ? null : 'M: ' + fmtD(mp.moda);
+    var M = mp.moda === null || (mp.moda === 0 && (mp.modas || []).length <= 1) ? null : 'M: ' + fmtModa(mp);
     var Pr = esCero(mp.prom) && Math.round(mp.prom) < 60 ? null : 'P: ' + fmtD(mp.prom);
     if (esTotal) return [M, Pr].filter(Boolean).join(' / ') || '-';
     return M || Pr || '-';
@@ -847,8 +846,8 @@
     function textoMP(mp) {
       if (!mp.n) return ['No hay tickets resueltos: la celda muestra "-".'];
       var out = ['Promedio = suma de los tiempos ÷ ' + mp.n + ' tickets = ' + fmtD(mp.prom) + '.'];
-      out.push(mp.moda === null ? 'Moda: ningún valor (redondeado a la hora) se repite 2 o más veces, por eso se muestra el promedio (P).' : 'Moda = tiempo más repetido después de redondear cada ticket a la hora más cercana: ' + fmtD(mp.moda) + '.');
-      out.push('Regla de la celda: sin moda → "P: promedio"; moda 0 h → "M: 0 h / P: promedio"; moda mayor a 0 → "M: moda"; fila Total → "M: moda / P: promedio".');
+      out.push(mp.moda === null ? 'Moda: ningún valor (redondeado a la hora) se repite 2 o más veces, por eso se muestra el promedio (P).' : (mp.modas.length > 1 ? 'Moda: empate entre ' + mp.modas.length + ' horas que se repiten ' + mp.modaFrec + ' veces cada una (' + mp.modas.map(function (h) { return h + 'h'; }).join(', ') + '); se muestran la menor (mejor escenario) y la mayor (peor escenario): ' + fmtModa(mp) + '.' : 'Moda = tiempo más repetido después de redondear cada ticket a la hora más cercana (' + mp.modaFrec + ' tickets): ' + fmtModa(mp) + '.'));
+      out.push('Regla de la celda: sin moda → "P: promedio"; moda única de 0 h → "P: promedio"; moda única → "M: 12h"; empate → "M: 8h - 73h" (menor - mayor); fila Total → "M: moda / P: promedio".');
       return out;
     }
     function explicar(x) {
@@ -1056,7 +1055,7 @@
       var P = porGrupo[g];
       resumenGrupos[g] = {
         creados: P.creados, solucionados: P.solucionados, pctSol: P.creados ? P.solucionados / P.creados : null,
-        prom: P.tiempo.prom, moda: P.tiempo.moda, semana: P.semana, gestion: P.gestion, jornada: P.jornada, resolucion: P.resolucion,
+        prom: P.tiempo.prom, moda: P.tiempo.moda, modaTxt: P.tiempo.moda === 0 && P.tiempo.modas.length <= 1 ? null : fmtModa(P.tiempo), semana: P.semana, gestion: P.gestion, jornada: P.jornada, resolucion: P.resolucion,
         reinc: P.reinc, reincGen: P.reincGen, upgrades: P.upgrades, sva: P.sva
       };
     });
@@ -1123,7 +1122,7 @@
     compute: compute, snapshot: snapshot, loadGLPI: loadGLPI, loadTipif: loadTipif,
     parseDate: parseDate, serialFromParts: serialFromParts, partsFromSerial: partsFromSerial, dayName: dayName,
     fmtD: fmtD, fmtPalabras: fmtPalabras, fmtDate: fmtDate, miles: miles, pct: pct, tickets: tickets, catCorta: catCorta,
-    cuentaDeTitulo: cuentaDeTitulo, direccionPlan: direccionPlan, modaPromedio: modaPromedio, celdaTiempo: celdaTiempo, homologar: homologar,
+    cuentaDeTitulo: cuentaDeTitulo, direccionPlan: direccionPlan, modaPromedio: modaPromedio, fmtModa: fmtModa, celdaTiempo: celdaTiempo, homologar: homologar,
     norm: norm, grpKey: grpKey, grpLabel: grpLabel, grpRegla: grpRegla, horasLaborales: horasLaborales, GRUPOS_PRIORIDAD: GRUPOS_PRIORIDAD, SIN_GRUPO: SIN_GRUPO, MESES: MESES, esPleyArriba: esPleyArriba, claveCliente: claveCliente
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.PIAEngine = api;

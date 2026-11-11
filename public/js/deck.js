@@ -176,11 +176,11 @@
       var ra = res(a), rb = res(b);
       card(s, cx, y, cw, ch, { label: 'Resueltos', chip: a, value: ra.value, unit: ra.unit, sub: ra.sub, size: 20 });
       card(s, cx, y + (ch + gy), cw, ch, { label: 'Resueltos', chip: b, value: rb.value, unit: rb.unit, sub: rb.sub, size: 20 });
-      card(s, cx, y + 2 * (ch + gy), cw, ch, { label: 'Promedio', chip: a, value: fmtD(G[a].prom), size: 18, sub: G[a].moda ? 'Moda: ' + fmtD(G[a].moda) : 'sin moda' });
+      card(s, cx, y + 2 * (ch + gy), cw, ch, { label: 'Promedio', chip: a, value: fmtD(G[a].prom), size: 18, sub: G[a].modaTxt ? 'Moda: ' + G[a].modaTxt : 'sin moda' });
       var cmp = R.comparativos[a + '_' + b];
       card(s, cx, y + 3 * (ch + gy), cw, ch, { label: 'Promedio', chip: b, value: fmtD(G[b].prom), size: 18, sub: cmp && cmp.ganador ? 'Diferencia: ' + cmp.valor + ' a favor de ' + L[cmp.ganador] : '' });
     }
-    var leyenda = 'M: moda (tiempo más repetido, redondeado a la hora) · P: promedio · Solo tickets resueltos o cerrados.';
+    var leyenda = 'M: moda (tiempo más repetido, redondeado a la hora; si hay empate: menor - mayor) · P: promedio · Solo tickets resueltos o cerrados.';
     var leyendaGrupo = leyenda + ' Grupo: uno por ticket. Si la última línea es Cobranzas Masivas, Cobranzas Masivas; si no, la última línea que esté en la lista de grupos del reporte; si ninguna está, la última línea.';
 
     /* ---------- Canal de creación (barras 100 % apiladas con porcentajes) ---------- */
