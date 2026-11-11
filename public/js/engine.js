@@ -514,6 +514,27 @@
       tot.pendAcc = filas[filas.length - 1].pendAcc; tot.resAcc = filas[filas.length - 1].resAcc;
       var pico = filas.reduce(function (a, f) { return f.abiertos > (a ? a.abiertos : -1) ? f : a; }, null);
       P.jornada = { filas: filas, total: tot, pico: pico, arrastre: arrastre };
+      /* resolución por día con tres alcances (como la hoja "Tablas"):
+         día = abiertos ese día y resueltos ese mismo día; semana = abiertos desde el primer día de la semana (00:00) hasta ese día y resueltos hasta ese día
+         (opción 2: más los de la semana pasada resueltos en la semana en < 72 h laborales); hasta la fecha = abiertos desde el inicio del período hasta ese día */
+      var trio = function (lista, D) { var ab = lista.length, res = lista.filter(function (t) { return t.dSol !== null && t.dSol <= D; }).length; return { ab: ab, res: res, pend: ab - res, pct: ab ? res / ab : null }; };
+      var resol = dias.map(function (D) {
+        var diaL = L.filter(function (t) { return t.dAp === D; });
+        var semL = L.filter(function (t) { return t.dAp >= wIni && t.dAp <= D; }).concat(modoSemana === 2 ? ext : []);
+        var acuL = L.filter(function (t) { return t.dAp >= ini && t.dAp <= D; });
+        var dd = { ab: diaL.length, res: diaL.filter(function (t) { return t.dSol === D; }).length }; dd.pend = dd.ab - dd.res; dd.pct = dd.ab ? dd.res / dd.ab : null;
+        /* flujo del día: abiertos ese día + abiertos antes en la semana que seguían pendientes al empezar el día (opción 2: incluye los de la semana pasada < 72 h) */
+        var bl = semL.filter(function (t) { return t.dAp < D && (t.dSol === null || t.dSol >= D); });
+        var blRes = bl.filter(function (t) { return t.dSol === D; }).length, sm = trio(semL, D);
+        var x = { abDia: dd.ab, abSem: bl.length, resDia: dd.res, resSem: blRes, pendDia: dd.pend, pendSem: bl.length - blRes, pctDia: dd.pct, pctSem: sm.pct };
+        x.abTot = x.abDia + x.abSem; x.resTot = x.resDia + x.resSem; x.pendTot = x.pendDia + x.pendSem;
+        return { serial: D, dia: dayName(D), fecha: fmtDate(D), fechaCorta: fmtDM(D), d: dd, s: sm, h: trio(acuL, D), x: x };
+      });
+      var ult = resol[resol.length - 1], sd = resol.reduce(function (a, f) { a.ab += f.d.ab; a.res += f.d.res; return a; }, { ab: 0, res: 0 });
+      sd.pend = sd.ab - sd.res; sd.pct = sd.ab ? sd.res / sd.ab : null;
+      var xt = resol.reduce(function (a, f) { a.abDia += f.x.abDia; a.resDia += f.x.resDia; a.resSem += f.x.resSem; return a; }, { abDia: 0, resDia: 0, resSem: 0 });
+      xt.abSem = modoSemana === 2 ? ext.length : 0; xt.abTot = xt.abDia + xt.abSem; xt.resTot = xt.resDia + xt.resSem; xt.pendDia = null; xt.pendSem = null; xt.pendTot = ult.x.pendTot; xt.pctDia = sd.pct; xt.pctSem = ult.s.pct;
+      P.resolucion = { filas: resol, total: { d: sd, s: ult.s, h: ult.h, x: xt }, desde: fmtDate(ini) };
       P.gestion = {
         abiertos: U.length,
         resueltos: mx.num,
@@ -1035,7 +1056,7 @@
       var P = porGrupo[g];
       resumenGrupos[g] = {
         creados: P.creados, solucionados: P.solucionados, pctSol: P.creados ? P.solucionados / P.creados : null,
-        prom: P.tiempo.prom, moda: P.tiempo.moda, semana: P.semana, gestion: P.gestion, jornada: P.jornada,
+        prom: P.tiempo.prom, moda: P.tiempo.moda, semana: P.semana, gestion: P.gestion, jornada: P.jornada, resolucion: P.resolucion,
         reinc: P.reinc, reincGen: P.reincGen, upgrades: P.upgrades, sva: P.sva
       };
     });

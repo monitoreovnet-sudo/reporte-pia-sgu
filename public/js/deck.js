@@ -92,7 +92,8 @@
       o.rows.forEach(function (r, i) {
         var fill = r.total ? C.total : (i % 2 ? C.alt : C.white);
         rows.push(r.cells.map(function (c, j) {
-          return { text: String(c), options: { fill: { color: fill }, bold: !!(r.total || (j === 0 && r.bold)), align: j === 0 ? 'left' : 'center', color: C.ink } };
+          var ct = o.colsTotal && o.colsTotal.indexOf(j) >= 0;
+          return { text: String(c), options: { fill: { color: ct ? C.total : fill }, bold: !!(r.total || ct || (j === 0 && r.bold)), align: j === 0 ? 'left' : 'center', color: C.ink } };
         }));
       });
       var nHead = rows.length - o.rows.length;
@@ -341,6 +342,91 @@
       });
     }
 
+    /* ---------- Resolución por día: en el día, en la semana, hasta la fecha y semana vs. día ---------- */
+    function resTabla(s, a, b, cols, fila, total, titulo) {
+      var head1 = [{ text: 'Día', o: { rowspan: 2 } }, { text: 'Fecha', o: { rowspan: 2 } }, { text: R.etiquetasLargas[a], o: { colspan: cols.length } }, { text: R.etiquetasLargas[b], o: { colspan: cols.length } }];
+      var head2 = cols.concat(cols).map(function (c) { return { text: c }; });
+      var RA = G[a].resolucion, RB = G[b].resolucion;
+      var rows = RA.filas.map(function (f, i) { return { cells: [f.dia, f.fecha.slice(0, 5)].concat(fila(f), fila(RB.filas[i])) }; });
+      rows.push({ total: true, cells: [total, ''].concat(fila(RA.total), fila(RB.total)) });
+      return tabla(s, { title: titulo, head1: head1, head2: head2, rows: rows, x: 0.4, y: 1.4, w: 12.5, colW: [1.0, 0.7].concat(new Array(cols.length * 2).fill(10.8 / (cols.length * 2))), rowH: 0.255, fontSize: 8 });
+    }
+    function resGrafico(s, a, y, titulo, series, tipo) {
+      var RA = G[a].resolucion, lab = RA.filas.map(function (f) { return f.dia.slice(0, 3) + ' ' + f.fechaCorta; });
+      txt(s, titulo + ' · ' + L[a], { x: 0.45, y: y, w: 7.8, h: 0.26, fontSize: 9.5, bold: true });
+      var linea = tipo === 'line';
+      s.addChart(linea ? pptx.ChartType.line : pptx.ChartType.bar, series.map(function (x) { return { name: x.name, labels: lab, values: RA.filas.map(x.v) }; }), Object.assign({
+        x: 0.35, y: y + 0.24, w: 7.9, h: 6.85 - y - 0.24, chartColors: series.map(function (x) { return x.color; }), showValue: true, dataLabelFontSize: 7, dataLabelColor: C.ink, dataLabelFontFace: FONT,
+        catAxisLabelFontSize: 7, catAxisLabelFontFace: FONT, catAxisLabelColor: C.ink, valAxisHidden: true, valGridLine: { style: 'none' }, showLegend: true, legendPos: 'r', legendFontFace: FONT, legendFontSize: 8
+      }, linea ? { lineSize: 2, lineDataSymbol: 'circle', lineDataSymbolSize: 6, dataLabelPosition: 't', dataLabelFormatCode: series[0].fmt || 'General' } : { barDir: 'col', barGrouping: 'clustered', dataLabelPosition: 'outEnd', barGapWidthPct: 60 }));
+    }
+    function resTarjetas(s, y, items) {
+      var mw = 2.2, mh = (6.85 - y - 0.1) / 2 - 0.06;
+      items.forEach(function (m, i) { card(s, 8.45 + (i % 2) * (mw + 0.12), y + Math.floor(i / 2) * (mh + 0.12), mw, mh, { label: m.label, chip: m.g, chipLabel: CORTO[m.g], value: m.value, size: 16, sub: m.sub }); });
+    }
+    var sem2 = function () { return R.semanaModo === 2; };
+    var notaOp2 = function () { return sem2() ? ' Opción 2: la semana incluye los tickets de la semana pasada resueltos en la semana en menos de 72 horas laborales (lunes a sábado 8:00–20:00); se suman a los abiertos desde el primer día.' : ''; };
+    var c4 = function (k) { return function (f) { var x = f[k]; return [miles(x.ab), miles(x.res), miles(x.pend), pct(x.pct)]; }; };
+
+    function laminaResDia(a, b, titulo) {
+      var s = base(titulo);
+      var yEnd = resTabla(s, a, b, ['Abiertos en el día', 'Resueltos en el día', 'Pendientes del día', '% resueltos en el día'], c4('d'), 'Total semanal', 'Resueltos en el día: abiertos y solucionados el mismo día · ' + R.ventana.desde.slice(0, 5) + ' al ' + R.ventana.hasta.slice(0, 5));
+      var y = yEnd + 0.12;
+      resGrafico(s, a, y, 'Abiertos vs. resueltos en el día', [{ name: 'Abiertos', color: C.lilac, v: function (f) { return f.d.ab; } }, { name: 'Resueltos el mismo día', color: C.purple, v: function (f) { return f.d.res; } }]);
+      var pico = G[a].resolucion.filas.reduce(function (m, f) { return !m || f.d.ab > m.d.ab ? f : m; }, null);
+      resTarjetas(s, y, [
+        { g: a, label: '% en el día', value: pct(G[a].resolucion.total.d.pct), sub: miles(G[a].resolucion.total.d.res) + ' de ' + miles(G[a].resolucion.total.d.ab) + ' abiertos' },
+        { g: b, label: '% en el día', value: pct(G[b].resolucion.total.d.pct), sub: miles(G[b].resolucion.total.d.res) + ' de ' + miles(G[b].resolucion.total.d.ab) + ' abiertos' },
+        { g: a, label: 'Día pico', value: pico ? pico.dia.slice(0, 3) + ' ' + pico.fechaCorta : '-', sub: pico ? miles(pico.d.ab) + ' abiertos · ' + pct(pico.d.pct) + ' resueltos' : '' },
+        { g: a, label: 'Pendientes', value: miles(G[a].resolucion.total.d.pend), sub: 'no resueltos el mismo día' }
+      ]);
+      foot(s, 'Abiertos en el día: creados ese día (00:00 a 23:59) · Resueltos en el día: creados y solucionados ese mismo día · Pendientes: creados ese día sin solución al cierre del día · Total semanal: suma de los 8 días.');
+    }
+    function laminaResSemana(a, b, titulo) {
+      var s = base(titulo);
+      var yEnd = resTabla(s, a, b, ['Abiertos en la semana', 'Resueltos en la semana', 'Pendientes en la semana', '% resueltos en la semana'], c4('s'), 'Total semanal', 'Resueltos en la semana: acumulado desde el ' + R.ventana.desde.slice(0, 5) + ' a las 00:00' + (sem2() ? ' · opción 2 (+ semana pasada < 72 h)' : ''));
+      var y = yEnd + 0.12;
+      resGrafico(s, a, y, 'Acumulado de la semana', [{ name: 'Abiertos', color: C.lilac, v: function (f) { return f.s.ab; } }, { name: 'Resueltos', color: C.purple, v: function (f) { return f.s.res; } }]);
+      var T = function (g) { return G[g].resolucion.total.s; };
+      resTarjetas(s, y, [
+        { g: a, label: '% en la semana', value: pct(T(a).pct), sub: miles(T(a).res) + ' de ' + miles(T(a).ab) + ' abiertos' },
+        { g: b, label: '% en la semana', value: pct(T(b).pct), sub: miles(T(b).res) + ' de ' + miles(T(b).ab) + ' abiertos' },
+        { g: a, label: 'Pendientes', value: miles(T(a).pend), sub: 'aún sin solución' },
+        { g: b, label: 'Pendientes', value: miles(T(b).pend), sub: 'aún sin solución' }
+      ]);
+      foot(s, 'Cada día acumula desde el primer día de la semana (00:00) hasta las 23:59 de ese día: abiertos, resueltos hasta ese día y pendientes · Total semanal = último día.' + notaOp2());
+    }
+    function laminaResAcum(a, b, titulo) {
+      var s = base(titulo);
+      var desde = G[a].resolucion.desde;
+      var yEnd = resTabla(s, a, b, ['Abiertos hasta la fecha', 'Resueltos hasta la fecha', 'Pendientes hasta la fecha', '% resueltos hasta la fecha'], c4('h'), 'Total al ' + R.ventana.hasta.slice(0, 5), 'Resueltos hasta la fecha: acumulado desde el ' + desde.slice(0, 5) + ' (inicio del período)');
+      var y = yEnd + 0.12;
+      resGrafico(s, a, y, 'Acumulado del período', [{ name: 'Abiertos', color: C.lilac, v: function (f) { return f.h.ab; } }, { name: 'Resueltos', color: C.purple, v: function (f) { return f.h.res; } }]);
+      var T = function (g) { return G[g].resolucion.total.h; };
+      resTarjetas(s, y, [
+        { g: a, label: '% hasta la fecha', value: pct(T(a).pct), sub: miles(T(a).res) + ' de ' + miles(T(a).ab) + ' abiertos' },
+        { g: b, label: '% hasta la fecha', value: pct(T(b).pct), sub: miles(T(b).res) + ' de ' + miles(T(b).ab) + ' abiertos' },
+        { g: a, label: 'Pendientes', value: miles(T(a).pend), sub: 'aún sin solución' },
+        { g: b, label: 'Pendientes', value: miles(T(b).pend), sub: 'aún sin solución' }
+      ]);
+      foot(s, 'Cada día acumula desde el inicio del período (' + desde + ') hasta las 23:59 de ese día: abiertos, resueltos hasta ese día y pendientes · No cambia con la opción del indicador semanal.');
+    }
+    function laminaResSemDia(a, b, titulo) {
+      var s = base(titulo);
+      var head1 = [{ text: 'Día', o: { rowspan: 2 } }, { text: 'Fecha', o: { rowspan: 2 } }, { text: 'Abiertos', o: { colspan: 3 } }, { text: 'Resueltos', o: { colspan: 3 } }, { text: 'Pendientes', o: { colspan: 3 } }, { text: '% de resolución', o: { colspan: 2 } }];
+      var head2 = ['Ese día', 'De la semana, pendientes', 'Total', 'El mismo día', 'De la semana', 'Total del día', 'De ese día', 'De la semana', 'Total', 'Del día', 'De la semana'].map(function (c, k) { return { text: c, o: k === 2 || k === 5 || k === 8 ? { fill: { color: C.total } } : {} }; });
+      var n = function (v) { return v === null || v === undefined ? '-' : miles(v); };
+      var fila = function (x) { return [n(x.abDia), n(x.abSem), n(x.abTot), n(x.resDia), n(x.resSem), n(x.resTot), n(x.pendDia), n(x.pendSem), n(x.pendTot), pct(x.pctDia), pct(x.pctSem)]; };
+      var y = 1.4;
+      [a, b].forEach(function (g) {
+        var RG = G[g].resolucion;
+        var rows = RG.filas.map(function (f) { return { cells: [f.dia, f.fecha.slice(0, 5)].concat(fila(f.x)) }; });
+        rows.push({ total: true, cells: ['Total semanal', ''].concat(fila(RG.total.x)) });
+        y = tabla(s, { title: R.etiquetasLargas[g] + ' · ' + R.ventana.desde.slice(0, 5) + ' al ' + R.ventana.hasta.slice(0, 5) + (sem2() ? ' · opción 2 (+ semana pasada < 72 h)' : ''), head1: head1, head2: head2, rows: rows, colsTotal: [4, 7, 10], x: 0.4, y: y, w: 12.5, colW: [1.0, 0.7].concat(new Array(11).fill(10.8 / 11)), rowH: 0.205, fontSize: 7.5 }) + 0.14;
+      });
+      foot(s, 'Abiertos: los de ese día más los abiertos antes en la semana que seguían pendientes al empezar el día · Resueltos: el mismo día de su apertura + los de la semana resueltos ese día · Pendientes al cierre del día · % del día: resueltos el mismo día ÷ abiertos ese día · % de la semana: acumulado desde el primer día (00:00).' + notaOp2());
+    }
+
     /* ---------- 13-14. Resolución en la jornada ---------- */
     function laminaJornada(a, b, titulo) {
       var s = base(titulo);
@@ -440,8 +526,10 @@
       laminaDetalleReinc(true);
       laminaGrupo('pia', 'otras', 'ATC · Grupo técnico: PIA vs. otras unidades');
       laminaOtro('tiempoGrupo', 'pia');
-      laminaJornada('pia', 'otras', 'ATC · Resolución en la jornada: PIA vs. otras');
-      laminaMismoDia('pia', 'otras', 'ATC · Resueltos el mismo día: PIA vs. otras');
+      laminaResDia('pia', 'otras', 'ATC · Resueltos en el día: PIA vs. otras');
+      laminaResSemana('pia', 'otras', 'ATC · Resueltos en la semana: PIA vs. otras');
+      laminaResAcum('pia', 'otras', 'ATC · Resueltos hasta la fecha: PIA vs. otras');
+      laminaResSemDia('pia', 'otras', 'ATC · Resueltos en la semana vs. en el día: PIA vs. otras');
     } else {
       paginaIndicadores('sgu', 'pais', R.comparativos.sgu_pais, true);
       laminaTiempo('sgu', 'pais', 'ATC · Tiempo de resolución: SGU vs. resto del país', leyendaPais, notaBrecha('sgu', 'pais'));
@@ -455,8 +543,10 @@
       laminaDetalleReinc(true);
       laminaGrupo('sgu', 'pais', 'ATC · Grupo técnico: SGU vs. resto del país');
       laminaOtro('tiempoGrupo', 'sgu');
-      laminaJornada('sgu', 'pais', 'ATC · Resolución en la jornada: SGU vs. país');
-      laminaMismoDia('sgu', 'pais', 'ATC · Resueltos el mismo día: SGU vs. país');
+      laminaResDia('sgu', 'pais', 'ATC · Resueltos en el día: SGU vs. país');
+      laminaResSemana('sgu', 'pais', 'ATC · Resueltos en la semana: SGU vs. país');
+      laminaResAcum('sgu', 'pais', 'ATC · Resueltos hasta la fecha: SGU vs. país');
+      laminaResSemDia('sgu', 'pais', 'ATC · Resueltos en la semana vs. en el día: SGU vs. país');
     }
 
     /* numeración automática: n/total (se agrega al final, cuando ya se sabe cuántas láminas hay) */
