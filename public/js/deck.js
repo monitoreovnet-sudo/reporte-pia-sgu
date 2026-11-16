@@ -166,9 +166,9 @@
     /* ---------- 4-5. Tiempo de resolución por categoría ---------- */
     function laminaTiempo(a, b, titulo, pie, nota) {
       var s = base(titulo);
-      var h = segHead(a, b, 'Categoría', ['Tickets resueltos', 'Moda o promedio']);
-      var rows = R.tiempoCategoria.map(function (r) { return { total: r.total, cells: [r.label, E.tickets(r[a].n), r[a].texto, E.tickets(r[b].n), r[b].texto] }; });
-      var yEnd = tabla(s, { title: 'Tiempo de resolución por categoría', head1: h.head1, head2: h.head2, rows: rows, x: 0.4, y: 1.45, w: 8.75, colW: [3.15, 1.0, 1.8, 1.0, 1.8], h: 4.65, maxRowH: 0.31 });
+      var h = segHead(a, b, 'Categoría', ['Tickets resueltos', 'Moda', 'Promedio']);
+      var rows = R.tiempoCategoria.map(function (r) { return { total: r.total, cells: [r.label, E.tickets(r[a].n), r[a].modaTxt, r[a].promTxt, E.tickets(r[b].n), r[b].modaTxt, r[b].promTxt] }; });
+      var yEnd = tabla(s, { title: 'Tiempo de resolución por categoría', head1: h.head1, head2: h.head2, rows: rows, x: 0.4, y: 1.45, w: 8.75, colW: [2.55, 0.9, 1.0, 1.2, 0.9, 1.0, 1.2], h: 4.65, maxRowH: 0.31 });
       note(s, 0.4, yEnd + 0.12, 8.75, 0.5, nota);
       foot(s, pie);
       var cx = 9.4, cw = 3.5, ch = 1.18, gy = 0.13, y = 1.45;
@@ -180,7 +180,7 @@
       var cmp = R.comparativos[a + '_' + b];
       card(s, cx, y + 3 * (ch + gy), cw, ch, { label: 'Promedio', chip: b, value: fmtD(G[b].prom), size: 18, sub: cmp && cmp.ganador ? 'Diferencia: ' + cmp.valor + ' a favor de ' + L[cmp.ganador] : '' });
     }
-    var leyenda = 'M: moda (tiempo más repetido, redondeado a la hora; si hay empate: menor - mayor) · P: promedio · Solo tickets resueltos o cerrados.';
+    var leyenda = 'Moda: tiempo más repetido (2 o más tickets), redondeado a la hora; si hay empate, menor - mayor · Promedio de los tickets resueltos o cerrados.';
     var leyendaGrupo = leyenda + ' Grupo: uno por ticket. Si la última línea es Cobranzas Masivas, Cobranzas Masivas; si no, la última línea que esté en la lista de grupos del reporte; si ninguna está, la última línea.';
 
     /* ---------- Canal de creación (barras 100 % apiladas con porcentajes) ---------- */
@@ -329,12 +329,36 @@
       }
     }
 
+    /* ---------- Clientes de SGU que reinciden: todas las categorías / solo FTTH / FTTH sin cobranzas ni tesorería ---------- */
+    function laminaClientesReinc(A) {
+      var LINE = 0.148, CAP = 5.05;
+      var alto = function (c) { return c.tickets.length * LINE + 0.05; };
+      var pags = [], cur = [], h = 0;
+      A.filas.forEach(function (c) { var a = alto(c); if (h + a > CAP && cur.length) { pags.push(cur); cur = []; h = 0; } cur.push(c); h += a; });
+      if (cur.length || !pags.length) pags.push(cur);
+      pags.forEach(function (lista, p) {
+        var s = base('ATC · Clientes que reinciden en SGU · ' + A.titulo + (pags.length > 1 ? '  (' + (p + 1) + '/' + pags.length + ')' : ''));
+        var col = function (c, f) { return c.tickets.map(f).join('\n'); };
+        var rows = lista.map(function (c) { return { cells: [c.nombre, col(c, function (t) { return t.id; }), col(c, function (t) { return E.catCorta(t.categoria); }), col(c, function (t) { return t.fecha + ' ' + t.hora; })] }; });
+        var hs = [0.28].concat(lista.map(alto));
+        if (!rows.length) { rows = [{ cells: ['Ningún cliente con 2 o más tickets en el período', '', '', ''] }]; hs.push(0.3); }
+        tabla(s, { title: A.titulo + ' · SGU total · ordenado por cliente y número de ticket', head1: [{ text: 'Cliente', o: { align: 'left' } }, { text: 'Ticket' }, { text: 'Motivo (categoría)', o: { align: 'left' } }, { text: 'Fecha de contacto' }], rows: rows,
+          x: 0.4, y: 1.45, w: 8.75, colW: [3.0, 0.95, 3.1, 1.7], rowHs: hs, fontSize: 7 });
+        var cx = 9.4, cw = 3.5, ch = 1.18, gy = 0.13, y = 1.45;
+        card(s, cx, y, cw, ch, { label: 'Reincidencia de clientes', chip: 'sgu', value: pct(A.pct), size: 22, sub: 'por cada 100 clientes, ' + (A.pct === null ? 0 : Math.round(A.pct * 100)) + ' reinciden' });
+        card(s, cx, y + (ch + gy), cw, ch, { label: 'Clientes que reinciden', chip: 'sgu', value: miles(A.reincidentes), size: 20, sub: 'con 2 o más tickets · ' + miles(A.ticketsReinc) + ' tickets' });
+        card(s, cx, y + 2 * (ch + gy), cw, ch, { label: 'Clientes atendidos', chip: 'sgu', value: miles(A.clientes), size: 20, sub: 'clientes distintos con ticket SGU' });
+        card(s, cx, y + 3 * (ch + gy), cw, ch, { label: 'Tickets del alcance', chip: 'sgu', value: miles(A.tickets), size: 20, sub: A.sinNombre ? miles(A.sinNombre) + ' sin nombre de cliente (no cuentan)' : 'todos con nombre de cliente' });
+        foot(s, A.def + ' Cliente: "Nombre Cliente" de GLPI (sin acentos ni signos). Reincide: 2 o más tickets en el período. % = clientes que reinciden ÷ clientes distintos. No pasa por la revisión de cédulas y contratos del indicador de reincidencia.');
+      });
+    }
+
     /* ---------- 11-12. Grupo técnico ---------- */
     function laminaGrupo(a, b, titulo) {
       var s = base(titulo);
-      var h = segHead(a, b, 'Grupo técnico', ['Tickets resueltos', 'Moda o promedio']);
-      var rows = R.tiempoGrupo.map(function (r) { return { total: r.total, bold: r.negrita, cells: [r.label, E.tickets(r[a].n), r[a].texto, E.tickets(r[b].n), r[b].texto] }; });
-      tabla(s, { title: 'Tiempo de resolución por grupo técnico', head1: h.head1, head2: h.head2, rows: rows, x: 0.4, y: 1.45, w: 8.75, colW: [3.15, 1.05, 1.75, 1.05, 1.75], h: 5.3, maxRowH: 0.33 });
+      var h = segHead(a, b, 'Grupo técnico', ['Tickets resueltos', 'Moda', 'Promedio']);
+      var rows = R.tiempoGrupo.map(function (r) { return { total: r.total, bold: r.negrita, cells: [r.label, E.tickets(r[a].n), r[a].modaTxt, r[a].promTxt, E.tickets(r[b].n), r[b].modaTxt, r[b].promTxt] }; });
+      tabla(s, { title: 'Tiempo de resolución por grupo técnico', head1: h.head1, head2: h.head2, rows: rows, x: 0.4, y: 1.45, w: 8.75, colW: [2.55, 0.9, 1.0, 1.2, 0.9, 1.0, 1.2], h: 5.3, maxRowH: 0.33 });
       foot(s, leyendaGrupo);
       var cx = 9.4, cw = 3.5, ch = 1.18, gy = 0.13, y = 1.45;
       R.tiempoGrupo.filter(function (r) { return r.negrita; }).slice(0, 4).forEach(function (r, i) {
@@ -483,13 +507,13 @@
 
     /* ---------- desglose de "Otro" (solo el grupo SGU de la presentación) ---------- */
     var OTRO = {
-      tiempoCategoria: { titulo: 'Tiempo de resolución por categoría', col: 'Categoría', cols: ['Tickets resueltos', 'Moda o promedio'], que: 'categorías' },
+      tiempoCategoria: { titulo: 'Tiempo de resolución por categoría', col: 'Categoría', cols: ['Tickets resueltos', 'Moda', 'Promedio'], que: 'categorías' },
       productividad: { titulo: 'Productividad por categoría', col: 'Categoría', cols: ['Creados', 'Solucionados'], que: 'categorías' },
-      tiempoGrupo: { titulo: 'Tiempo de resolución por grupo técnico', col: 'Grupo técnico', cols: ['Tickets resueltos', 'Moda o promedio'], que: 'grupos técnicos' }
+      tiempoGrupo: { titulo: 'Tiempo de resolución por grupo técnico', col: 'Grupo técnico', cols: ['Tickets resueltos', 'Moda', 'Promedio'], que: 'grupos técnicos' }
     };
     function laminaOtro(kind, g) {
       var def = OTRO[kind], d = R.otros[kind][g], tiempo = kind !== 'productividad';
-      var celdas = function (v) { return tiempo ? [E.tickets(v.n), v.texto] : [E.tickets(v.creados), E.tickets(v.solucionados)]; };
+      var celdas = function (v) { return tiempo ? [E.tickets(v.n), v.modaTxt, v.promTxt] : [E.tickets(v.creados), E.tickets(v.solucionados)]; };
       var filas = d.filas.map(function (r) { return { cells: [r.label].concat(celdas(r.v)) }; });
       var POR = 17, paginas = Math.max(1, Math.ceil(filas.length / POR));
       var totalTk = tiempo ? d.total.v.n : d.total.v.creados;
@@ -497,10 +521,10 @@
       for (var p = 0; p < paginas; p++) {
         var s = base('ATC · Desglose de "Otro": ' + def.titulo.charAt(0).toLowerCase() + def.titulo.slice(1) + (paginas > 1 ? '  (' + (p + 1) + '/' + paginas + ')' : ''));
         var rows = filas.slice(p * POR, (p + 1) * POR);
-        if (!filas.length) rows = [{ cells: ['Sin tickets en "Otro"', '', ''] }];
+        if (!filas.length) rows = [{ cells: ['Sin tickets en "Otro"'].concat(def.cols.map(function () { return ''; })) }];
         if (p === paginas - 1) rows.push({ total: true, cells: [d.total.label].concat(celdas(d.total.v)) });
-        tabla(s, { title: '"Otro" de ' + R.etiquetasLargas[g] + ' · ' + def.titulo.toLowerCase(), head1: [{ text: def.col, o: { rowspan: 2, align: 'left' } }, { text: R.etiquetasLargas[g], o: { colspan: 2 } }], head2: def.cols.map(function (c) { return { text: c }; }),
-          rows: rows, x: 0.4, y: 1.45, w: 8.75, colW: [5.15, 1.6, 2.0], h: 5.3, maxRowH: 0.3 });
+        tabla(s, { title: '"Otro" de ' + R.etiquetasLargas[g] + ' · ' + def.titulo.toLowerCase(), head1: [{ text: def.col, o: { rowspan: 2, align: 'left' } }, { text: R.etiquetasLargas[g], o: { colspan: def.cols.length } }], head2: def.cols.map(function (c) { return { text: c }; }),
+          rows: rows, x: 0.4, y: 1.45, w: 8.75, colW: def.cols.length === 3 ? [4.35, 1.3, 1.4, 1.7] : [5.15, 1.6, 2.0], h: 5.3, maxRowH: 0.3 });
         if (p > 0) continue;
         var cx = 9.4, cw = 3.5;
         card(s, cx, 1.45, cw, 1.3, { label: '"Otro"', chip: g, value: miles(totalTk), unit: tiempo ? 'tickets resueltos' : 'tickets creados', size: 22, sub: pct(base0 ? totalTk / base0 : null) + ' del total de ' + L[g] });
@@ -541,6 +565,7 @@
       laminaDetalleReinc();
       laminaReinc(true);
       laminaDetalleReinc(true);
+      (R.clientesReinc || []).forEach(laminaClientesReinc);
       laminaGrupo('sgu', 'pais', 'ATC · Grupo técnico: SGU vs. resto del país');
       laminaOtro('tiempoGrupo', 'sgu');
       laminaResDia('sgu', 'pais', 'ATC · Resueltos en el día: SGU vs. país');

@@ -668,18 +668,20 @@
     });
 
     /* --- tablas 5.1 y 5.2 --- */
+    /* columnas separadas: moda ("12h", "8h - 51h" o "-") y promedio */
+    function colsMP(mp) { mp.modaTxt = mp && mp.n ? (fmtModa(mp) || '-') : '-'; mp.promTxt = mp && mp.n ? fmtD(mp.prom) : '-'; return mp; }
     function tablaTiempo(campo, etiquetas, claves) {
       var filas = etiquetas.map(function (lab, i) {
         var f = function (t) { return t[campo] === claves[i]; };
         var row = { label: lab, negrita: cfg.gruposNegrita.indexOf(lab) >= 0 && campo === 'grpK' };
-        GRUPOS.forEach(function (g) { row[g] = modaPromedio(porGrupo[g].lista.filter(function (t) { return f(t) && t.res && t.dur !== null; }).map(function (t) { return t.dur; })); row[g].texto = celdaTiempo(row[g]); });
+        GRUPOS.forEach(function (g) { row[g] = modaPromedio(porGrupo[g].lista.filter(function (t) { return f(t) && t.res && t.dur !== null; }).map(function (t) { return t.dur; })); row[g].texto = celdaTiempo(row[g]); colsMP(row[g]); });
         return row;
       });
       var otro = { label: 'Otro', otro: true };
-      GRUPOS.forEach(function (g) { otro[g] = modaPromedio(porGrupo[g].lista.filter(function (t) { return claves.indexOf(t[campo]) < 0 && t.res && t.dur !== null; }).map(function (t) { return t.dur; })); otro[g].texto = celdaTiempo(otro[g]); });
+      GRUPOS.forEach(function (g) { otro[g] = modaPromedio(porGrupo[g].lista.filter(function (t) { return claves.indexOf(t[campo]) < 0 && t.res && t.dur !== null; }).map(function (t) { return t.dur; })); otro[g].texto = celdaTiempo(otro[g]); colsMP(otro[g]); });
       filas.push(otro);
       var tot = { label: 'Total', total: true };
-      GRUPOS.forEach(function (g) { tot[g] = Object.assign({}, porGrupo[g].tiempo); tot[g].texto = celdaTiempo(tot[g], true); });
+      GRUPOS.forEach(function (g) { tot[g] = Object.assign({}, porGrupo[g].tiempo); tot[g].texto = celdaTiempo(tot[g], true); colsMP(tot[g]); });
       filas.push(tot);
       return filas;
     }
@@ -707,13 +709,13 @@
         L.forEach(function (t) { var k = t[campo]; if (!por[k]) { por[k] = { label: labelDe(t) || (campo === 'grpK' ? 'Sin grupo asignado' : 'Sin categoría'), lista: [] }; orden.push(k); } por[k].lista.push(t); });
         var filas = orden.map(function (k) {
           var x = por[k], row = { label: x.label };
-          if (tipo === 'tiempo') { row.v = modaPromedio(x.lista.filter(function (t) { return t.res && t.dur !== null; }).map(function (t) { return t.dur; })); row.v.texto = celdaTiempo(row.v); row.orden = row.v.n; }
+          if (tipo === 'tiempo') { row.v = modaPromedio(x.lista.filter(function (t) { return t.res && t.dur !== null; }).map(function (t) { return t.dur; })); row.v.texto = celdaTiempo(row.v); colsMP(row.v); row.orden = row.v.n; }
           else { row.v = cr(x.lista); row.orden = row.v.creados; }
           return row;
         }).filter(function (r) { return tipo === 'tiempo' ? r.v.n > 0 : r.v.creados > 0; });
         filas.sort(function (a, b) { return b.orden - a.orden || a.label.localeCompare(b.label, 'es'); });
         var tot = { label: 'Total "Otro"', total: true };
-        if (tipo === 'tiempo') { tot.v = modaPromedio(L.filter(function (t) { return t.res && t.dur !== null; }).map(function (t) { return t.dur; })); tot.v.texto = celdaTiempo(tot.v, true); }
+        if (tipo === 'tiempo') { tot.v = modaPromedio(L.filter(function (t) { return t.res && t.dur !== null; }).map(function (t) { return t.dur; })); tot.v.texto = celdaTiempo(tot.v, true); colsMP(tot.v); }
         else tot.v = cr(L);
         out[g] = { filas: filas, total: tot };
       });
@@ -725,7 +727,30 @@
       tiempoGrupo: desglose('grpK', grpKeys, function (t) { return t.grpL; }, 'tiempo')
     };
 
-    /* --- comparativos --- */
+    /* --- clientes de SGU que reinciden (2 o más tickets del mismo "Nombre Cliente"), en tres alcances --- */
+    var sinCob = function (t) { return t.catK.indexOf('cobranzas masivas') < 0; };
+    var ALCANCES = [
+      { key: 'todas', titulo: 'Todas las categorías', def: 'Todos los tickets SGU del período.', f: function () { return true; } },
+      { key: 'ftth', titulo: 'Solo fallas FTTH', def: 'Tickets SGU cuya categoría contiene "FTTH" (incluye "Cobranzas Masivas > FTTH > …").', f: function (t) { return t.catK.indexOf('ftth') >= 0; } },
+      { key: 'ftthLimpio', titulo: 'FTTH sin cobranzas masivas ni tesorería', def: 'Tickets SGU con "FTTH" en la categoría, sin las categorías de Cobranzas Masivas y sin los asignados al grupo Tesoreria Masivos.', f: function (t) { return t.catK.indexOf('ftth') >= 0 && sinCob(t) && t.grpL !== 'Tesoreria Masivos'; } }
+    ];
+    var clientesReinc = ALCANCES.map(function (A) {
+      var Ls = porGrupo.sgu.lista.filter(A.f), cli = {}, orden = [];
+      Ls.forEach(function (t) {
+        var k = claveCliente(t.raw.cliente); if (!k) return;
+        if (!cli[k]) { cli[k] = { clave: k, nombre: String(t.raw.cliente).replace(/\s+/g, ' ').trim().toUpperCase(), tickets: [] }; orden.push(k); }
+        cli[k].tickets.push(t);
+      });
+      var rep = orden.map(function (k) { return cli[k]; }).filter(function (c) { return c.tickets.length >= 2; });
+      rep.sort(function (a, b) { return a.nombre.localeCompare(b.nombre, 'es'); });
+      rep.forEach(function (c) { c.tickets.sort(function (a, b) { return (+a.idNum || 0) - (+b.idNum || 0); }); });
+      var tk = rep.reduce(function (a, c) { return a + c.tickets.length; }, 0);
+      return { key: A.key, titulo: A.titulo, def: A.def, tickets: Ls.length, sinNombre: Ls.filter(function (t) { return !claveCliente(t.raw.cliente); }).length,
+        clientes: orden.length, reincidentes: rep.length, ticketsReinc: tk, pct: orden.length ? rep.length / orden.length : null,
+        filas: rep.map(function (c) { return { nombre: c.nombre, n: c.tickets.length, tickets: c.tickets.map(function (t) { return { id: t.id, idNum: t.idNum, categoria: t.cat, fecha: t.raw.apertura === null ? '' : fmtDate(t.raw.apertura), hora: t.raw.apertura === null ? '' : (function (p) { return String(p.h).padStart(2, '0') + ':' + String(p.mi).padStart(2, '0'); })(partsFromSerial(t.raw.apertura)), estado: t.raw.estado, grupo: t.grpL }; }) }; }) };
+    });
+
+
     function comparar(a, b) {
       var A = porGrupo[a].tiempo, B = porGrupo[b].tiempo;
       if (!A.n || !B.n) return { a: a, b: b, valor: '-', ganador: null, detalle: '' };
@@ -998,8 +1023,8 @@
             e.registros = [regT(x.m === 'solucionados' ? 'Tickets solucionados' : 'Tickets creados', x.m === 'solucionados' ? LsP : Lc)];
           } else {
             var LR2 = Lc.filter(function (t) { return t.res && t.dur !== null; }), mp2 = row[g];
-            e.valor = x.m === 'n' ? miles(mp2.n) + ' tickets resueltos' : mp2.texto;
-            e.definicion = x.m === 'n' ? 'Tickets resueltos (Estado Resuelto o Cerrado) de la fila.' : '"Moda o promedio" del tiempo de resolución (Fecha de solución − Fecha de apertura) de los tickets resueltos de la fila.';
+            e.valor = x.m === 'n' ? miles(mp2.n) + ' tickets resueltos' : x.m === 'moda' ? 'Moda: ' + mp2.modaTxt : x.m === 'prom' ? 'Promedio: ' + mp2.promTxt : mp2.texto;
+            e.definicion = x.m === 'n' ? 'Tickets resueltos (Estado Resuelto o Cerrado) de la fila.' : (x.m === 'moda' ? 'Moda (tiempo más repetido, redondeado a la hora; si hay empate se muestra menor - mayor)' : 'Promedio') + ' del tiempo de resolución (Fecha de solución − Fecha de apertura) de los tickets resueltos de la fila.';
             e.pasos = x.m === 'n' ? ['Tickets de la fila: ' + miles(Lc.length) + '; resueltos: ' + miles(LR2.length) + '.'] : textoMP(mp2);
             e.registros = [regT('Tickets resueltos de la fila', LR2)];
           }
@@ -1093,7 +1118,7 @@
       ventana: { desde: fmtDate(wIni), hasta: fmtDate(wFin - 1), corta: partsFromSerial(wIni).d + '–' + fmtDM(wFin - 1) },
       etiquetas: ETIQUETAS, etiquetasLargas: ETIQUETAS_LARGAS,
       fijos: fijos, g: resumenGrupos, comparativos: comparativos,
-      tiempoCategoria: tiempoCategoria, tiempoGrupo: tiempoGrupo, productividad: productividad, otros: otros,
+      tiempoCategoria: tiempoCategoria, tiempoGrupo: tiempoGrupo, productividad: productividad, otros: otros, clientesReinc: clientesReinc,
       reincidencia: porGrupo.sgu.reinc,
       reincidenciaGeneral: porGrupo.sgu.reincGen,
       revision: { pendientes: colaRevision, revisados: revisadosLista, total: colaRevision.length + revisadosLista.length },

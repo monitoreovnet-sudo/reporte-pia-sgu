@@ -455,7 +455,7 @@
     var L = S.R.etiquetasLargas;
     return { h1: '<th rowspan="2">' + label + '</th>' + GS.map(function (g) { return '<th colspan="' + cols.length + '">' + esc(L[g]) + '</th>'; }).join(''), h2: GS.map(function () { return cols.map(function (c) { return '<th>' + c + '</th>'; }).join(''); }).join('') };
   }
-  function tiempoRows(list, t) { return list.map(function (r, ri) { return { tot: r.total, bold: r.negrita, cells: [r.label].concat(GS.reduce(function (a, g) { return a.concat([{ v: E.tickets(r[g].n), x: { k: 'cel', t: t, r: ri, g: g, m: 'n' } }, { v: r[g].texto, x: { k: 'cel', t: t, r: ri, g: g, m: 'texto' } }]); }, [])) }; }); }
+  function tiempoRows(list, t) { return list.map(function (r, ri) { return { tot: r.total, bold: r.negrita, cells: [r.label].concat(GS.reduce(function (a, g) { return a.concat([{ v: E.tickets(r[g].n), x: { k: 'cel', t: t, r: ri, g: g, m: 'n' } }, { v: r[g].modaTxt, x: { k: 'cel', t: t, r: ri, g: g, m: 'moda' } }, { v: r[g].promTxt, x: { k: 'cel', t: t, r: ri, g: g, m: 'prom' } }]); }, [])) }; }); }
   function dias(secs) { return secs >= 86400 ? (Math.round(secs / 8640) / 10).toLocaleString('es-VE') + ' d' : Math.round(secs / 3600) + ' h'; }
   function upTxt(g) { var u = S.R.g[g].upgrades, v = S.R.g[g].sva; return { v: num(u.n) + ' · ' + num(v.n), u: 'upgrades · SVA', n: (!u.n && u.cambiosPlan && u.bajas === u.cambiosPlan) ? u.cambiosPlan + ' cambio(s) de plan, todos a un plan menor' : num(u.cambiosPlan) + ' cambios de plan en GLPI' }; }
 
@@ -503,12 +503,12 @@
         tile('c6', 'Creados y solucionados', 'en el período', C.hbars({ title: 'Creados y solucionados', labels: ['PIA', 'SGU otras unidades', 'SGU total'], labelW: 160, series: [{ name: 'Creados', color: COLORS.grey, values: [G.pia.creados, G.otras.creados, G.sgu.creados] }, { name: 'Solucionados', color: COLORS.brand, values: [G.pia.solucionados, G.otras.solucionados, G.sgu.solucionados] }], fmt: num }));
     } else if (i === 1) {
       var cats = R.tiempoCategoria.filter(function (r) { return !r.total; });
-      var hh = h4('Categoría', ['Tickets resueltos', 'Moda o promedio']);
-      body = tile('c12', 'Tiempo de resolución por categoría', 'M: moda (valor más repetido, redondeado a la hora; si hay empate: menor - mayor) · P: promedio · solo tickets resueltos', table(hh.h1, hh.h2, tiempoRows(R.tiempoCategoria, 'tiempoCategoria'))) +
+      var hh = h4('Categoría', ['Tickets resueltos', 'Moda', 'Promedio']);
+      body = tile('c12', 'Tiempo de resolución por categoría', 'Moda: valor más repetido (2 o más tickets), redondeado a la hora; si hay empate, menor - mayor · Promedio · solo tickets resueltos', table(hh.h1, hh.h2, tiempoRows(R.tiempoCategoria, 'tiempoCategoria'))) +
         tile('c12', 'Promedio por categoría', 'SGU total vs. país', C.hbars({ title: 'Promedio por categoría', labels: cats.map(function (r) { return E.catCorta(r.label); }), labelW: 220, series: [{ name: 'SGU total', color: COLORS.hot, values: cats.map(function (r) { return r.sgu.prom || 0; }) }, { name: 'País', color: COLORS.brand, values: cats.map(function (r) { return r.pais.prom || 0; }) }], fmt: dias }));
     } else if (i === 2) {
-      var hg = h4('Grupo técnico', ['Tickets resueltos', 'Moda o promedio']);
-      body = tile('c12', 'Tiempo de resolución por grupo técnico', 'M: moda (si hay empate: menor - mayor) · P: promedio · solo tickets resueltos', table(hg.h1, hg.h2, tiempoRows(R.tiempoGrupo, 'tiempoGrupo'))) +
+      var hg = h4('Grupo técnico', ['Tickets resueltos', 'Moda', 'Promedio']);
+      body = tile('c12', 'Tiempo de resolución por grupo técnico', 'Moda: si hay empate, menor - mayor · Promedio · solo tickets resueltos', table(hg.h1, hg.h2, tiempoRows(R.tiempoGrupo, 'tiempoGrupo'))) +
         (S.pdfMode ? '' : '<div class="c12 row"><button class="btn" id="xSinGrupo">' + ICONS.down + 'Descargar tickets sin grupo técnico asignado (' + num(R.sinGrupo.filas.length) + ')</button><span class="hint">Excel con los tickets del período que no tienen grupo técnico resolutorio, de todos los grupos (PIA, SGU otras unidades y País).</span></div>') +
         asignacionGruposHtml(R);
     } else if (i === 3) {
@@ -531,6 +531,14 @@
         GS.map(function (g) { var x = G[g].reincGen; return '<div class="viz card c3 xable"' + xa({ k: 'reincGen', g: g }) + '><div class="t">Reincidencia general ' + chipH(g) + '</div><div class="v">' + num(x.abonados) + '<small>clientes</small></div><div class="n">' + num(x.tickets) + ' tickets · ' + pct(x.pct) + ' de ' + num(x.ftth) + ' seleccionados</div></div>'; }).join('') +
         tile('c5', 'Categorías de los tickets reincidentes', 'SGU total · todas las categorías' + (Object.keys(RG.porCategoria).length > 15 ? ' · las 15 con más tickets' : ''), rgc.length ? C.hbars({ title: 'Reincidencia general por categoría', labels: rgc, labelW: 170, series: [{ name: 'Tickets', color: COLORS.brand, values: rgc.map(function (k) { return RG.porCategoria[k]; }) }], fmt: num }) : '<p class="hint">Sin reincidencias.</p>') +
         tile('c7', 'Clientes reincidentes · todas las categorías', 'SGU total · por "Nombre Cliente" de GLPI', table('<th>Cliente</th><th>Cuenta</th><th>Categorías</th><th>Tickets</th>', '', RG.detalle.length ? RG.detalle.map(function (d) { return { cells: [d.nombre, d.cuenta, d.categorias.join('\n'), d.tickets.map(function (t) { return t.id + (t.pia ? ' (PIA)' : ''); }).join('\n')] }; }) : [{ cells: ['Sin reincidencias', '', '', ''] }]));
+      body += (R.clientesReinc || []).map(function (A) {
+        var filas = A.filas.length ? A.filas.map(function (c) { return { cells: [c.nombre, c.tickets.map(function (t) { return t.id; }).join('\n'), c.tickets.map(function (t) { return t.categoria; }).join('\n'), c.tickets.map(function (t) { return t.fecha + ' ' + t.hora; }).join('\n')] }; }) : [{ cells: ['Sin clientes que reincidan', '', '', ''] }];
+        return '<div class="c12 sec-h"><h2>Clientes que reinciden en SGU · ' + esc(A.titulo) + '</h2><p class="hint">' + esc(A.def) + ' Reincide: 2 o más tickets en el período. % = clientes que reinciden ÷ clientes distintos (por "Nombre Cliente" de GLPI). Esta tabla no pasa por la revisión humana del indicador de reincidencia.</p></div>' +
+          kcard('Reincidencia de clientes', '', A.pct === null ? '-' : pct(A.pct), '', A.clientes ? 'por cada 100 clientes, ' + num(Math.round(A.pct * 100)) + ' reinciden' : '', 'sgu') +
+          kcard('Clientes que reinciden', '', num(A.reincidentes), '', 'con 2 o más tickets · ' + num(A.ticketsReinc) + ' tickets', 'sgu') +
+          kcard('Clientes atendidos', '', num(A.clientes), '', 'clientes distintos con ticket SGU', 'sgu') +
+          tile('c12', 'Clientes que reinciden · ' + A.titulo, 'SGU total · ordenado por cliente y número de ticket', table('<th>Cliente</th><th>Ticket</th><th>Motivo (categoría)</th><th>Fecha de contacto</th>', '', filas));
+      }).join('');
     } else if (i === 5 || i === 6) {
       var semana = i === 5;
       var cols = semana ? ['Abiertos', 'Pendientes', 'Resueltos', 'Pend. acum.', 'Resuelto acum.', '% jornada'] : ['Abiertos', 'Pendientes', 'Resueltos mismo día', 'Resueltos de esa semana', '% jornada'];
@@ -930,8 +938,8 @@
     var wsI = add('Indicadores', ind, [40, 22, 22, 22, 22]);
     ind.forEach(function (r, i) { if (r[0] === 'Reincidencia FTTH: tickets seleccionados') nota(wsI, 'A' + (i + 1), R.seleccionTxt.ftth); });
     function tiempoSheet(name, first, list) {
-      var aoa = [[first].concat(GS.reduce(function (a, g) { return a.concat([LL[g] + ' · resueltos', LL[g] + ' · moda o promedio', LL[g] + ' · promedio', LL[g] + ' · moda']); }, []))];
-      list.forEach(function (r) { aoa.push([r.label].concat(GS.reduce(function (a, g) { return a.concat([r[g].n, r[g].texto, r[g].n ? E.fmtD(r[g].prom) : '-', E.fmtModa(r[g]) || '-']); }, []))); });
+      var aoa = [[first].concat(GS.reduce(function (a, g) { return a.concat([LL[g] + ' · resueltos', LL[g] + ' · moda', LL[g] + ' · promedio']); }, []))];
+      list.forEach(function (r) { aoa.push([r.label].concat(GS.reduce(function (a, g) { return a.concat([r[g].n, r[g].modaTxt, r[g].promTxt]); }, []))); });
       add(name, aoa, [55]);
     }
     tiempoSheet('5.1 Tiempo por categoría', 'Categoría', R.tiempoCategoria);
@@ -963,6 +971,12 @@
     rg.push([]); rg.push(['Nombre Cliente', 'Cuenta (título)', 'Categorías', 'Ticket', 'Categoría del ticket', 'Estado', 'Creado por el PIA', 'Tickets del cliente']);
     R.reincidenciaGeneral.detalle.forEach(function (d) { d.tickets.forEach(function (t) { rg.push([d.nombre, t.cuenta, d.categorias.join(' · '), t.id, t.cat, t.estado, t.pia ? 'Sí' : 'No', d.tickets.length]); }); });
     var wsG = add('Reincidencia general', rg, [38, 12, 40, 22, 40, 14, 10, 10]);
+    (R.clientesReinc || []).forEach(function (A, k) {
+      var cr = [[A.titulo, A.def], ['Clientes atendidos', A.clientes], ['Clientes que reinciden', A.reincidentes], ['% reincidencia de clientes', A.pct === null ? '' : Math.round(A.pct * 1000) / 10 + '%'], ['Tickets del alcance', A.tickets], [], ['Cliente', 'Ticket', 'Motivo (categoría)', 'Fecha de contacto', 'Estado', 'Grupo técnico']];
+      A.filas.forEach(function (c) { c.tickets.forEach(function (t) { cr.push([c.nombre, t.id, t.categoria, t.fecha + ' ' + t.hora, t.estado, t.grupo]); }); });
+      add('Clientes reinc. ' + ['todas', 'FTTH', 'FTTH limpio'][k], cr, [38, 12, 50, 18, 14, 26]);
+    });
+
     nota(wsG, 'A1', R.seleccionTxt.general); nota(wsG, 'D3', R.seleccionTxt.general);
     var up = [['Grupo', 'Upgrades', 'Tickets GLPI con aumento', 'Aumentos en Tipificador', 'Repetidos', 'SVA', 'SVA en GLPI', 'SVA en Tipificador', 'Cambios de plan GLPI', 'A plan menor o revertidos']];
     GS.forEach(function (g) { var u = G[g].upgrades, v = G[g].sva; up.push([L[g], u.n, u.glpi.join(', '), u.tip, u.repetidos, v.n, v.glpi.join(', '), v.tip, u.cambiosPlan, u.bajas]); });
