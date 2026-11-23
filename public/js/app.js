@@ -84,7 +84,8 @@
   /* ================= configuración de cálculo ================= */
   function defaultsFiltros() {
     return { version: 5, categorias: E.DEFAULTS.categorias.slice(), grupos: E.DEFAULTS.grupos.slice(), reincExcluir: E.DEFAULTS.reincExcluir.slice(),
-      sucursal: E.DEFAULTS.sucursal, sguMarker: E.DEFAULTS.sguMarker, piaSolicitante: E.DEFAULTS.piaSolicitante, semanaModo: 1 };
+      sucursal: E.DEFAULTS.sucursal, sguMarker: E.DEFAULTS.sguMarker, piaSolicitante: E.DEFAULTS.piaSolicitante, semanaModo: 1,
+      slaHoras: E.DEFAULTS.slaHoras, metricasTiempo: E.DEFAULTS.metricasTiempo.slice() };
   }
   function filtros() { return Object.assign(defaultsFiltros(), S.filtros || {}); }
   function guardarFiltros() { return api('PUT', 'filtros', { filtros: filtros() }).catch(function (e) { toast('No se guardaron los filtros: ' + e.message, true); }); }
@@ -455,7 +456,19 @@
     var L = S.R.etiquetasLargas;
     return { h1: '<th rowspan="2">' + label + '</th>' + GS.map(function (g) { return '<th colspan="' + cols.length + '">' + esc(L[g]) + '</th>'; }).join(''), h2: GS.map(function () { return cols.map(function (c) { return '<th>' + c + '</th>'; }).join(''); }).join('') };
   }
-  function tiempoRows(list, t) { return list.map(function (r, ri) { return { tot: r.total, bold: r.negrita, cells: [r.label].concat(GS.reduce(function (a, g) { return a.concat([{ v: E.tickets(r[g].n), x: { k: 'cel', t: t, r: ri, g: g, m: 'n' } }, { v: r[g].modaTxt, x: { k: 'cel', t: t, r: ri, g: g, m: 'moda' } }, { v: r[g].promTxt, x: { k: 'cel', t: t, r: ri, g: g, m: 'prom' } }]); }, [])) }; }); }
+  function tiempoCols(R) { return ['Tickets resueltos'].concat(E.METRICAS_TIEMPO.map(function (m) { return E.metricaLabel(m, R.slaHoras); })); }
+  function tiempoRows(list, t) {
+    return list.map(function (r, ri) {
+      return {
+        tot: r.total, bold: r.negrita,
+        cells: [r.label].concat(GS.reduce(function (a, g) {
+          var cs = [{ v: E.tickets(r[g].n), x: { k: 'cel', t: t, r: ri, g: g, m: 'n' } }];
+          E.METRICAS_TIEMPO.forEach(function (m) { cs.push({ v: m.key === 'buckets' && typeof r[g][m.prop] === 'string' ? r[g][m.prop].replace(/\n/g, ' · ') : r[g][m.prop], x: { k: 'cel', t: t, r: ri, g: g, m: m.key } }); });
+          return a.concat(cs);
+        }, []))
+      };
+    });
+  }
   function dias(secs) { return secs >= 86400 ? (Math.round(secs / 8640) / 10).toLocaleString('es-VE') + ' d' : Math.round(secs / 3600) + ' h'; }
   function upTxt(g) { var u = S.R.g[g].upgrades, v = S.R.g[g].sva; return { v: num(u.n) + ' · ' + num(v.n), u: 'upgrades · SVA', n: (!u.n && u.cambiosPlan && u.bajas === u.cambiosPlan) ? u.cambiosPlan + ' cambio(s) de plan, todos a un plan menor' : num(u.cambiosPlan) + ' cambios de plan en GLPI' }; }
 
@@ -503,11 +516,11 @@
         tile('c6', 'Creados y solucionados', 'en el período', C.hbars({ title: 'Creados y solucionados', labels: ['PIA', 'SGU otras unidades', 'SGU total'], labelW: 160, series: [{ name: 'Creados', color: COLORS.grey, values: [G.pia.creados, G.otras.creados, G.sgu.creados] }, { name: 'Solucionados', color: COLORS.brand, values: [G.pia.solucionados, G.otras.solucionados, G.sgu.solucionados] }], fmt: num }));
     } else if (i === 1) {
       var cats = R.tiempoCategoria.filter(function (r) { return !r.total; });
-      var hh = h4('Categoría', ['Tickets resueltos', 'Moda', 'Promedio']);
+      var hh = h4('Categoría', tiempoCols(R));
       body = tile('c12', 'Tiempo de resolución por categoría', 'Moda: valor más repetido (2 o más tickets), redondeado a la hora; si hay empate, menor - mayor · Promedio · solo tickets resueltos', table(hh.h1, hh.h2, tiempoRows(R.tiempoCategoria, 'tiempoCategoria'))) +
         tile('c12', 'Promedio por categoría', 'SGU total vs. país', C.hbars({ title: 'Promedio por categoría', labels: cats.map(function (r) { return E.catCorta(r.label); }), labelW: 220, series: [{ name: 'SGU total', color: COLORS.hot, values: cats.map(function (r) { return r.sgu.prom || 0; }) }, { name: 'País', color: COLORS.brand, values: cats.map(function (r) { return r.pais.prom || 0; }) }], fmt: dias }));
     } else if (i === 2) {
-      var hg = h4('Grupo técnico', ['Tickets resueltos', 'Moda', 'Promedio']);
+      var hg = h4('Grupo técnico', tiempoCols(R));
       body = tile('c12', 'Tiempo de resolución por grupo técnico', 'Moda: si hay empate, menor - mayor · Promedio · solo tickets resueltos', table(hg.h1, hg.h2, tiempoRows(R.tiempoGrupo, 'tiempoGrupo'))) +
         (S.pdfMode ? '' : '<div class="c12 row"><button class="btn" id="xSinGrupo">' + ICONS.down + 'Descargar tickets sin grupo técnico asignado (' + num(R.sinGrupo.filas.length) + ')</button><span class="hint">Excel con los tickets del período que no tienen grupo técnico resolutorio, de todos los grupos (PIA, SGU otras unidades y País).</span></div>') +
         asignacionGruposHtml(R);
@@ -600,8 +613,12 @@
       return '<div class="fcard' + (open ? ' open' : '') + '" data-f="' + d.id + '"><button type="button" class="fhead" aria-expanded="' + open + '"><b>' + esc(d.title) + '</b><span>' + marcadas(d, R, f[d.id]).length + ' de ' + filterOptions(d, R).length + ' ' + d.noun + (d.invert ? ' cuentan' : '') + '</span></button>' +
         (open ? filterList(d, R) : '') + '</div>';
     }).join('');
+    var mAct = Array.isArray(f.metricasTiempo) && f.metricasTiempo.length ? f.metricasTiempo : E.DEFAULTS.metricasTiempo;
+    var mOpen = S.openFilter && S.openFilter.id === '_metricas';
+    var mCard = '<div class="fcard' + (mOpen ? ' open' : '') + '" data-fm="1"><button type="button" class="fhead" aria-expanded="' + mOpen + '"><b>Métricas en presentación</b><span>' + mAct.length + ' de ' + E.METRICAS_TIEMPO.length + ' · SLA ≤ ' + (Number(f.slaHoras) || 24) + 'h</span></button>' +
+      (mOpen ? metricasList(R) : '') + '</div>';
     return '<aside class="fpane' + (S.fpaneOpen ? '' : ' closed') + '" aria-label="Filtros"><div class="fh"><span>' + ICONS.filter.replace('<svg', '<svg width="15" height="15" style="vertical-align:-2px;margin-right:6px"') + 'Filtros</span><button type="button" id="fToggle" aria-label="' + (S.fpaneOpen ? 'Ocultar filtros' : 'Mostrar filtros') + '">' + (S.fpaneOpen ? '»' : '«') + '</button></div>' +
-      '<div class="fbody">' + cards + '<p class="hint">Por defecto se usan las 10 categorías del reporte y los 8 grupos técnicos de la lista de prioridad, más (Sin grupo asignado). Lo demás se suma en "Otro". Los filtros se guardan para todos los usuarios y se aplican al informe, la presentación y las descargas.</p></div></aside>';
+      '<div class="fbody">' + cards + mCard + '<p class="hint">Por defecto se usan las 10 categorías del reporte y los 8 grupos técnicos de la lista de prioridad, más (Sin grupo asignado). Lo demás se suma en "Otro". Los filtros se guardan para todos los usuarios y se aplican al informe, la presentación y las descargas.</p></div></aside>';
   }
   function filterOptions(d, R) {
     var k = keyerDe(d), opts = R.opciones[d.kind].slice(), known = {};
@@ -621,6 +638,23 @@
       '<div class="tools"><label><input type="checkbox" data-role="sgu"' + (st.onlySgu ? ' checked' : '') + '> Solo con SGU</label><span style="flex:1"></span><button type="button" data-role="all">Todas</button><button type="button" data-role="none">Ninguna</button><button type="button" data-role="orig">Originales</button></div>' +
       '<div class="opts">' + (html || '<p class="hint">Sin resultados.</p>') + '</div><p class="hint">' + st.picked.length + ' seleccionadas · ' + esc(d.note) + '</p>' +
       '<div class="apply"><button type="button" class="btn sm" data-role="cancel">Cancelar</button><button type="button" class="btn sm primary" data-role="apply">Aplicar</button></div></div>';
+  }
+  function metricasList(R) {
+    var st = S.openFilter;
+    var slaOpts = E.SLA_OPCIONES.map(function (o) {
+      return '<option value="' + o.h + '"' + (Number(st.slaHoras) === o.h ? ' selected' : '') + '>' + esc(o.label) + '</option>';
+    }).join('');
+    var cbs = E.METRICAS_TIEMPO.map(function (m) {
+      var on = st.picked.indexOf(m.key) >= 0;
+      return '<label class="fopt"><input type="checkbox" data-mk="' + m.key + '"' + (on ? ' checked' : '') + '><span>' + esc(m.key === 'sla' ? 'Cumplimiento ' + E.metricaLabel(m, st.slaHoras) : m.label) + '</span></label>';
+    }).join('');
+    var warn = st.picked.length > 4 ? '<p class="hint" style="color:var(--brand)">Con más de 4 métricas, la fuente de la tabla en PowerPoint se reduce automáticamente para que quepa.</p>' : '';
+    return '<div class="flist"><label class="hint" style="display:block;margin-bottom:4px">SLA objetivo (Informe y Presentación)</label>' +
+      '<select class="input" data-role="sla" style="margin-bottom:8px">' + slaOpts + '</select>' +
+      '<div class="tools"><button type="button" data-role="mall">Todas</button><button type="button" data-role="morig">Moda y Prom.</button></div>' +
+      '<div class="opts">' + cbs + '</div>' + warn +
+      '<p class="hint">Elige qué columnas aparecen en las tablas de tiempo de la Presentación (Categoría, Grupo técnico y desgloses de "Otro"). El Informe y el Excel siempre muestran todas.</p>' +
+      '<div class="apply"><button type="button" class="btn sm" data-role="mcancel">Cancelar</button><button type="button" class="btn sm primary" data-role="mapply">Aplicar</button></div></div>';
   }
 
   /* ================= revisión humana de reincidencias ================= */
@@ -889,6 +923,40 @@
         calcular(); rerender(); guardarFiltros(); toast('Filtro aplicado para todos los usuarios.');
       });
     });
+    var fm = document.querySelector('.fcard[data-fm="1"]');
+    if (fm) {
+      fm.querySelector('.fhead').addEventListener('click', function () {
+        var f0 = filtros();
+        S.openFilter = S.openFilter && S.openFilter.id === '_metricas' ? null : {
+          id: '_metricas',
+          slaHoras: Number(f0.slaHoras) || 24,
+          picked: (Array.isArray(f0.metricasTiempo) && f0.metricasTiempo.length ? f0.metricasTiempo : E.DEFAULTS.metricasTiempo).slice()
+        };
+        rerender();
+      });
+      var mlist = fm.querySelector('.flist');
+      if (mlist) {
+        var mst = S.openFilter;
+        mlist.querySelector('[data-role="sla"]').addEventListener('change', function (e) { mst.slaHoras = Number(e.target.value) || 24; rerender(); });
+        mlist.querySelector('[data-role="mall"]').addEventListener('click', function () { mst.picked = E.METRICAS_TIEMPO.map(function (m) { return m.key; }); rerender(); });
+        mlist.querySelector('[data-role="morig"]').addEventListener('click', function () { mst.picked = E.DEFAULTS.metricasTiempo.slice(); rerender(); });
+        mlist.querySelector('.opts').addEventListener('change', function (e) {
+          var mk = e.target.getAttribute('data-mk'); if (!mk) return;
+          var at = mst.picked.indexOf(mk);
+          if (e.target.checked && at < 0) mst.picked.push(mk);
+          else if (!e.target.checked && at >= 0) mst.picked.splice(at, 1);
+          rerender();
+        });
+        mlist.querySelector('[data-role="mcancel"]').addEventListener('click', function () { S.openFilter = null; rerender(); });
+        mlist.querySelector('[data-role="mapply"]').addEventListener('click', function () {
+          if (!mst.picked.length) { toast('Seleccione al menos una métrica para la presentación.', true); return; }
+          var ordered = E.METRICAS_TIEMPO.map(function (m) { return m.key; }).filter(function (k) { return mst.picked.indexOf(k) >= 0; });
+          S.filtros = Object.assign(filtros(), { slaHoras: mst.slaHoras, metricasTiempo: ordered });
+          S.openFilter = null;
+          calcular(); rerender(); guardarFiltros(); toast('Métricas y SLA guardados para todos los usuarios.');
+        });
+      }
+    }
   }
 
   /** Nombre de archivo: meses del informe y fecha y hora de la descarga */
@@ -938,8 +1006,17 @@
     var wsI = add('Indicadores', ind, [40, 22, 22, 22, 22]);
     ind.forEach(function (r, i) { if (r[0] === 'Reincidencia FTTH: tickets seleccionados') nota(wsI, 'A' + (i + 1), R.seleccionTxt.ftth); });
     function tiempoSheet(name, first, list) {
-      var aoa = [[first].concat(GS.reduce(function (a, g) { return a.concat([LL[g] + ' · resueltos', LL[g] + ' · moda', LL[g] + ' · promedio']); }, []))];
-      list.forEach(function (r) { aoa.push([r.label].concat(GS.reduce(function (a, g) { return a.concat([r[g].n, r[g].modaTxt, r[g].promTxt]); }, []))); });
+      var aoa = [[first].concat(GS.reduce(function (a, g) {
+        return a.concat([LL[g] + ' · resueltos']).concat(E.METRICAS_TIEMPO.map(function (m) { return LL[g] + ' · ' + E.metricaLabel(m, R.slaHoras); }));
+      }, []))];
+      list.forEach(function (r) {
+        aoa.push([r.label].concat(GS.reduce(function (a, g) {
+          return a.concat([r[g].n]).concat(E.METRICAS_TIEMPO.map(function (m) {
+            var v = r[g][m.prop];
+            return m.key === 'buckets' && typeof v === 'string' ? v.replace(/\n/g, ' · ') : v;
+          }));
+        }, [])));
+      });
       add(name, aoa, [55]);
     }
     tiempoSheet('5.1 Tiempo por categoría', 'Categoría', R.tiempoCategoria);

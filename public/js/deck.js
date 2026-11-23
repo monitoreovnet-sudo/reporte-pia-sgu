@@ -106,6 +106,27 @@
       return { head1: [{ text: label, o: { rowspan: 2, align: 'left' } }, { text: R.etiquetasLargas[a], o: { colspan: cols.length } }, { text: R.etiquetasLargas[b], o: { colspan: cols.length } }],
         head2: cols.concat(cols).map(function (c) { return { text: c }; }) };
     };
+    var mKeys = Array.isArray(R.metricasTiempo) && R.metricasTiempo.length ? R.metricasTiempo : ['moda', 'prom'];
+    var mList = E.METRICAS_TIEMPO.filter(function (m) { return mKeys.indexOf(m.key) >= 0; });
+    if (!mList.length) mList = E.METRICAS_TIEMPO.slice(0, 2);
+    var mCols = ['Tickets resueltos'].concat(mList.map(function (m) { return E.metricaLabel(m, R.slaHoras); }));
+    function mVals(mp) { return [E.tickets(mp.n)].concat(mList.map(function (m) { return mp[m.prop]; })); }
+    function mColW(nGrupos, totalW) {
+      var w0 = nGrupos === 2 ? (mList.length <= 2 ? 2.55 : (mList.length <= 4 ? 2.1 : 1.75)) : (mList.length <= 2 ? 4.35 : (mList.length <= 4 ? 3.4 : 2.6));
+      var rem = totalW - w0;
+      var weights = [0.85].concat(mList.map(function (m) { return m.key === 'buckets' ? 1.55 : (m.key === 'minMax' ? 1.25 : 1.0); }));
+      var sumW = weights.reduce(function (a, b) { return a + b; }, 0) * nGrupos;
+      var out = [w0];
+      for (var g = 0; g < nGrupos; g++) weights.forEach(function (w) { out.push(Math.round((rem * w / sumW) * 1000) / 1000); });
+      return out;
+    }
+    function mFontSize(nGrupos) {
+      var totalCols = 1 + nGrupos * (1 + mList.length);
+      if (totalCols <= 7) return null;
+      if (totalCols <= 9) return 7;
+      if (totalCols <= 13) return 6;
+      return 5.5;
+    }
 
     /* ---------- 0. Portada ---------- */
     var s0 = pptx.addSlide();
@@ -166,9 +187,9 @@
     /* ---------- 4-5. Tiempo de resolución por categoría ---------- */
     function laminaTiempo(a, b, titulo, pie, nota) {
       var s = base(titulo);
-      var h = segHead(a, b, 'Categoría', ['Tickets resueltos', 'Moda', 'Promedio']);
-      var rows = R.tiempoCategoria.map(function (r) { return { total: r.total, cells: [r.label, E.tickets(r[a].n), r[a].modaTxt, r[a].promTxt, E.tickets(r[b].n), r[b].modaTxt, r[b].promTxt] }; });
-      var yEnd = tabla(s, { title: 'Tiempo de resolución por categoría', head1: h.head1, head2: h.head2, rows: rows, x: 0.4, y: 1.45, w: 8.75, colW: [2.55, 0.9, 1.0, 1.2, 0.9, 1.0, 1.2], h: 4.65, maxRowH: 0.31 });
+      var h = segHead(a, b, 'Categoría', mCols);
+      var rows = R.tiempoCategoria.map(function (r) { return { total: r.total, cells: [r.label].concat(mVals(r[a]), mVals(r[b])) }; });
+      var yEnd = tabla(s, { title: 'Tiempo de resolución por categoría', head1: h.head1, head2: h.head2, rows: rows, x: 0.4, y: 1.45, w: 8.75, colW: mColW(2, 8.75), fontSize: mFontSize(2), h: 4.65, maxRowH: 0.31 });
       note(s, 0.4, yEnd + 0.12, 8.75, 0.5, nota);
       foot(s, pie);
       var cx = 9.4, cw = 3.5, ch = 1.18, gy = 0.13, y = 1.45;
@@ -180,7 +201,11 @@
       var cmp = R.comparativos[a + '_' + b];
       card(s, cx, y + 3 * (ch + gy), cw, ch, { label: 'Promedio', chip: b, value: fmtD(G[b].prom), size: 18, sub: cmp && cmp.ganador ? 'Diferencia: ' + cmp.valor + ' a favor de ' + L[cmp.ganador] : '' });
     }
-    var leyenda = 'Moda: tiempo más repetido (2 o más tickets), redondeado a la hora; si hay empate, menor - mayor · Promedio de los tickets resueltos o cerrados.';
+    var leyendaExtra = [];
+    if (mKeys.indexOf('sla') >= 0) leyendaExtra.push('SLA ≤ ' + (R.slaHoras || 24) + 'h');
+    if (mKeys.indexOf('outliers') >= 0) leyendaExtra.push('Outliers: > Q3 + 1,5·IQR');
+    if (mKeys.indexOf('buckets') >= 0) leyendaExtra.push('Rangos: ≤8h (Mesa Trabajo), 8-24h (Objetivo), 24-48h (Aceptable), 48-72h (Límite legal), >72h (Compensación)');
+    var leyenda = 'Moda: tiempo más repetido (2 o más tickets), redondeado a la hora; si hay empate, menor - mayor · Promedio de los tickets resueltos o cerrados.' + (leyendaExtra.length ? ' · ' + leyendaExtra.join(' · ') + '.' : '');
     var leyendaGrupo = leyenda + ' Grupo: uno por ticket. Si la última línea es Cobranzas Masivas, Cobranzas Masivas; si no, la última línea que esté en la lista de grupos del reporte; si ninguna está, la última línea.';
 
     /* ---------- Canal de creación (barras 100 % apiladas con porcentajes) ---------- */
@@ -356,9 +381,9 @@
     /* ---------- 11-12. Grupo técnico ---------- */
     function laminaGrupo(a, b, titulo) {
       var s = base(titulo);
-      var h = segHead(a, b, 'Grupo técnico', ['Tickets resueltos', 'Moda', 'Promedio']);
-      var rows = R.tiempoGrupo.map(function (r) { return { total: r.total, bold: r.negrita, cells: [r.label, E.tickets(r[a].n), r[a].modaTxt, r[a].promTxt, E.tickets(r[b].n), r[b].modaTxt, r[b].promTxt] }; });
-      tabla(s, { title: 'Tiempo de resolución por grupo técnico', head1: h.head1, head2: h.head2, rows: rows, x: 0.4, y: 1.45, w: 8.75, colW: [2.55, 0.9, 1.0, 1.2, 0.9, 1.0, 1.2], h: 5.3, maxRowH: 0.33 });
+      var h = segHead(a, b, 'Grupo técnico', mCols);
+      var rows = R.tiempoGrupo.map(function (r) { return { total: r.total, bold: r.negrita, cells: [r.label].concat(mVals(r[a]), mVals(r[b])) }; });
+      tabla(s, { title: 'Tiempo de resolución por grupo técnico', head1: h.head1, head2: h.head2, rows: rows, x: 0.4, y: 1.45, w: 8.75, colW: mColW(2, 8.75), fontSize: mFontSize(2), h: 5.3, maxRowH: 0.33 });
       foot(s, leyendaGrupo);
       var cx = 9.4, cw = 3.5, ch = 1.18, gy = 0.13, y = 1.45;
       R.tiempoGrupo.filter(function (r) { return r.negrita; }).slice(0, 4).forEach(function (r, i) {
@@ -507,13 +532,13 @@
 
     /* ---------- desglose de "Otro" (solo el grupo SGU de la presentación) ---------- */
     var OTRO = {
-      tiempoCategoria: { titulo: 'Tiempo de resolución por categoría', col: 'Categoría', cols: ['Tickets resueltos', 'Moda', 'Promedio'], que: 'categorías' },
+      tiempoCategoria: { titulo: 'Tiempo de resolución por categoría', col: 'Categoría', cols: mCols, que: 'categorías' },
       productividad: { titulo: 'Productividad por categoría', col: 'Categoría', cols: ['Creados', 'Solucionados'], que: 'categorías' },
-      tiempoGrupo: { titulo: 'Tiempo de resolución por grupo técnico', col: 'Grupo técnico', cols: ['Tickets resueltos', 'Moda', 'Promedio'], que: 'grupos técnicos' }
+      tiempoGrupo: { titulo: 'Tiempo de resolución por grupo técnico', col: 'Grupo técnico', cols: mCols, que: 'grupos técnicos' }
     };
     function laminaOtro(kind, g) {
       var def = OTRO[kind], d = R.otros[kind][g], tiempo = kind !== 'productividad';
-      var celdas = function (v) { return tiempo ? [E.tickets(v.n), v.modaTxt, v.promTxt] : [E.tickets(v.creados), E.tickets(v.solucionados)]; };
+      var celdas = function (v) { return tiempo ? mVals(v) : [E.tickets(v.creados), E.tickets(v.solucionados)]; };
       var filas = d.filas.map(function (r) { return { cells: [r.label].concat(celdas(r.v)) }; });
       var POR = 17, paginas = Math.max(1, Math.ceil(filas.length / POR));
       var totalTk = tiempo ? d.total.v.n : d.total.v.creados;
@@ -524,7 +549,7 @@
         if (!filas.length) rows = [{ cells: ['Sin tickets en "Otro"'].concat(def.cols.map(function () { return ''; })) }];
         if (p === paginas - 1) rows.push({ total: true, cells: [d.total.label].concat(celdas(d.total.v)) });
         tabla(s, { title: '"Otro" de ' + R.etiquetasLargas[g] + ' · ' + def.titulo.toLowerCase(), head1: [{ text: def.col, o: { rowspan: 2, align: 'left' } }, { text: R.etiquetasLargas[g], o: { colspan: def.cols.length } }], head2: def.cols.map(function (c) { return { text: c }; }),
-          rows: rows, x: 0.4, y: 1.45, w: 8.75, colW: def.cols.length === 3 ? [4.35, 1.3, 1.4, 1.7] : [5.15, 1.6, 2.0], h: 5.3, maxRowH: 0.3 });
+          rows: rows, x: 0.4, y: 1.45, w: 8.75, colW: tiempo ? mColW(1, 8.75) : [5.15, 1.6, 2.0], fontSize: tiempo ? mFontSize(1) : null, h: 5.3, maxRowH: 0.3 });
         if (p > 0) continue;
         var cx = 9.4, cw = 3.5;
         card(s, cx, 1.45, cw, 1.3, { label: '"Otro"', chip: g, value: miles(totalTk), unit: tiempo ? 'tickets resueltos' : 'tickets creados', size: 22, sub: pct(base0 ? totalTk / base0 : null) + ' del total de ' + L[g] });

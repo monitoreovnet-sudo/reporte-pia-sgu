@@ -30,8 +30,35 @@
     grupos: ['ATC No Presencial', 'Cobranzas Masivas', 'Contratista San Agustín', 'Tesoreria Masivos', 'Coordinación de reparación Técnico FTTX', 'Activaciones', 'UDN-CARACAS', 'COR', '(Sin grupo asignado)'],
     /** Categorías FTTH que NO cuentan para reincidencias (se cambia desde el filtro del Informe). */
     reincExcluir: ['Cobranzas Masivas > FTTH > Ajuste de facturación', 'Cobranzas Masivas > FTTH > Reembolso', 'FTTH > Cambio de plan'],
-    gruposNegrita: ['ATC No Presencial', 'Cobranzas Masivas', 'Contratista San Agustín', 'Tesoreria Masivos']
+    gruposNegrita: ['ATC No Presencial', 'Cobranzas Masivas', 'Contratista San Agustín', 'Tesoreria Masivos'],
+    slaHoras: 24,
+    metricasTiempo: ['moda', 'prom']
   };
+
+  var SLA_OPCIONES = [
+    { h: 8,  label: '≤ 8h (Mesa Trabajo)',  corto: 'SLA ≤ 8h' },
+    { h: 24, label: '≤ 24h (Objetivo)',     corto: 'SLA ≤ 24h' },
+    { h: 48, label: '≤ 48h (Aceptable)',    corto: 'SLA ≤ 48h' },
+    { h: 72, label: '≤ 72h (Límite legal)', corto: 'SLA ≤ 72h' }
+  ];
+  var METRICAS_TIEMPO = [
+    { key: 'moda',     label: 'Moda',                        corto: 'Moda',       prop: 'modaTxt' },
+    { key: 'prom',     label: 'Promedio',                    corto: 'Promedio',   prop: 'promTxt' },
+    { key: 'mediana',  label: 'Mediana (P50)',               corto: 'Mediana',    prop: 'medianaTxt' },
+    { key: 'p85',      label: 'Percentil 85 (P85)',          corto: 'P85',        prop: 'p85Txt' },
+    { key: 'p90',      label: 'Percentil 90 (P90)',          corto: 'P90',        prop: 'p90Txt' },
+    { key: 'p95',      label: 'Percentil 95 (P95)',          corto: 'P95',        prop: 'p95Txt' },
+    { key: 'sla',      label: 'Cumplimiento SLA (%)',        corto: 'SLA',        prop: 'slaTxt' },
+    { key: 'iqr',      label: 'Rango Intercuartílico (IQR)', corto: 'IQR',        prop: 'iqrTxt' },
+    { key: 'desv',     label: 'Desviación Estándar',         corto: 'Desv. Est.', prop: 'desvTxt' },
+    { key: 'minMax',   label: 'Mínimo / Máximo',             corto: 'Mín / Máx',  prop: 'minMaxTxt' },
+    { key: 'outliers', label: 'Outliers (atípicos)',         corto: 'Outliers',   prop: 'outliersTxt' },
+    { key: 'buckets',  label: 'Distribución por rangos',     corto: 'Rangos',     prop: 'bucketsTxt' }
+  ];
+  function metricaLabel(m, slaHoras) {
+    if (m.key === 'sla') return 'SLA ≤ ' + (Number(slaHoras) || 24) + 'h';
+    return m.corto;
+  }
 
   var GRUPOS = ['pia', 'otras', 'sgu', 'pais'];
   var ETIQUETAS = { pia: 'PIA', otras: 'SGU otras unidades', sgu: 'SGU total', pais: 'País' };
@@ -309,13 +336,56 @@
   /* ---------- moda o promedio (3.4) ---------- */
   /* moda: tiempo más repetido (2 o más veces) después de redondear cada ticket a la hora más cercana.
      Si varias horas empatan en la frecuencia máxima, se informan la menor (mejor escenario) y la mayor (peor escenario). */
-  function modaPromedio(lista) {
-    if (!lista.length) return { n: 0, prom: null, moda: null, modaMax: null, modas: [] };
-    var sum = 0, cnt = {};
-    lista.forEach(function (s) { sum += s; var r = Math.round(s / 3600); cnt[r] = (cnt[r] || 0) + 1; });
+  function perc(ord, p) {
+    if (!ord.length) return null;
+    if (ord.length === 1) return ord[0];
+    var pos = (ord.length - 1) * p, lo = Math.floor(pos), hi = Math.ceil(pos);
+    return ord[lo] + (ord[hi] - ord[lo]) * (pos - lo);
+  }
+  function modaPromedio(lista, slaHoras) {
+    slaHoras = Number(slaHoras) || 24;
+    if (!lista.length) {
+      return { n: 0, prom: null, moda: null, modaMax: null, modas: [], modaFrec: 0,
+        mediana: null, q1: null, q3: null, p85: null, p90: null, p95: null,
+        iqr: null, desv: null, min: null, max: null, outliers: 0, umbralOutlier: null,
+        slaN: 0, slaPct: null, slaHoras: slaHoras,
+        buckets: { b8: 0, b24: 0, b48: 0, b72: 0, bMas: 0 } };
+    }
+    var sum = 0, cnt = {}, b = { b8: 0, b24: 0, b48: 0, b72: 0, bMas: 0 };
+    var slaLim = slaHoras * 3600, slaN = 0;
+    lista.forEach(function (s) {
+      sum += s;
+      var r = Math.round(s / 3600);
+      cnt[r] = (cnt[r] || 0) + 1;
+      if (s <= slaLim) slaN++;
+      if (s <= 8 * 3600) b.b8++;
+      else if (s <= 24 * 3600) b.b24++;
+      else if (s <= 48 * 3600) b.b48++;
+      else if (s <= 72 * 3600) b.b72++;
+      else b.bMas++;
+    });
+    var n = lista.length, prom = sum / n;
     var best = 0; Object.keys(cnt).forEach(function (k) { if (cnt[k] > best) best = cnt[k]; });
     var modas = best >= 2 ? Object.keys(cnt).filter(function (k) { return cnt[k] === best; }).map(Number).sort(function (a, b) { return a - b; }) : [];
-    return { n: lista.length, prom: sum / lista.length, moda: modas.length ? modas[0] * 3600 : null, modaMax: modas.length ? modas[modas.length - 1] * 3600 : null, modas: modas, modaFrec: modas.length ? best : 0 };
+    var ord = lista.slice().sort(function (a, b) { return a - b; });
+    var q1 = perc(ord, 0.25), mediana = perc(ord, 0.50), q3 = perc(ord, 0.75);
+    var p85 = perc(ord, 0.85), p90 = perc(ord, 0.90), p95 = perc(ord, 0.95);
+    var iqr = q3 - q1;
+    var varSum = 0; lista.forEach(function (s) { var d = s - prom; varSum += d * d; });
+    var desv = Math.sqrt(varSum / n);
+    var umbralOutlier = q3 + 1.5 * iqr;
+    var outliers = n >= 4 ? ord.filter(function (s) { return s > umbralOutlier; }).length : 0;
+    return {
+      n: n, prom: prom,
+      moda: modas.length ? modas[0] * 3600 : null,
+      modaMax: modas.length ? modas[modas.length - 1] * 3600 : null,
+      modas: modas, modaFrec: modas.length ? best : 0,
+      mediana: mediana, q1: q1, q3: q3, p85: p85, p90: p90, p95: p95,
+      iqr: iqr, desv: desv, min: ord[0], max: ord[n - 1],
+      outliers: outliers, umbralOutlier: umbralOutlier,
+      slaN: slaN, slaPct: slaN / n, slaHoras: slaHoras,
+      buckets: b
+    };
   }
   /* texto de la moda: "12h" si es única; "8h - 73h" si hay empate (menor - mayor) */
   function fmtModa(mp) {
@@ -434,7 +504,7 @@
       var L = porGrupo[g].lista, P = porGrupo[g];
       P.creados = L.length;
       P.solucionados = L.filter(function (t) { return t.res; }).length;
-      P.tiempo = modaPromedio(L.filter(function (t) { return t.res && t.dur !== null; }).map(function (t) { return t.dur; }));
+      P.tiempo = modaPromedio(L.filter(function (t) { return t.res && t.dur !== null; }).map(function (t) { return t.dur; }), cfg.slaHoras);
     });
 
     /* --- 4.1 fijos --- */
@@ -668,17 +738,33 @@
     });
 
     /* --- tablas 5.1 y 5.2 --- */
-    /* columnas separadas: moda ("12h", "8h - 51h" o "-") y promedio */
-    function colsMP(mp) { mp.modaTxt = mp && mp.n ? (fmtModa(mp) || '-') : '-'; mp.promTxt = mp && mp.n ? fmtD(mp.prom) : '-'; return mp; }
+    /* columnas separadas: moda, promedio y las 6 medidas estadísticas adicionales */
+    var slaH = Number(cfg.slaHoras) || 24;
+    function colsMP(mp) {
+      var ok = mp && mp.n;
+      mp.modaTxt = ok ? (fmtModa(mp) || '-') : '-';
+      mp.promTxt = ok ? fmtD(mp.prom) : '-';
+      mp.medianaTxt = ok ? fmtD(mp.mediana) : '-';
+      mp.p85Txt = ok ? fmtD(mp.p85) : '-';
+      mp.p90Txt = ok ? fmtD(mp.p90) : '-';
+      mp.p95Txt = ok ? fmtD(mp.p95) : '-';
+      mp.slaTxt = ok ? pct(mp.slaPct) : '-';
+      mp.iqrTxt = ok ? fmtD(mp.iqr) : '-';
+      mp.desvTxt = ok ? fmtD(mp.desv) : '-';
+      mp.minMaxTxt = ok ? fmtD(mp.min) + ' / ' + fmtD(mp.max) : '-';
+      mp.outliersTxt = ok ? (mp.outliers ? miles(mp.outliers) + ' (' + pct(mp.outliers / mp.n) + ')' : '0') : '-';
+      mp.bucketsTxt = ok ? ('≤8h: ' + pct(mp.buckets.b8 / mp.n) + '\n8-24h: ' + pct(mp.buckets.b24 / mp.n) + '\n24-48h: ' + pct(mp.buckets.b48 / mp.n) + '\n48-72h: ' + pct(mp.buckets.b72 / mp.n) + '\n>72h: ' + pct(mp.buckets.bMas / mp.n)) : '-';
+      return mp;
+    }
     function tablaTiempo(campo, etiquetas, claves) {
       var filas = etiquetas.map(function (lab, i) {
         var f = function (t) { return t[campo] === claves[i]; };
         var row = { label: lab, negrita: cfg.gruposNegrita.indexOf(lab) >= 0 && campo === 'grpK' };
-        GRUPOS.forEach(function (g) { row[g] = modaPromedio(porGrupo[g].lista.filter(function (t) { return f(t) && t.res && t.dur !== null; }).map(function (t) { return t.dur; })); row[g].texto = celdaTiempo(row[g]); colsMP(row[g]); });
+        GRUPOS.forEach(function (g) { row[g] = modaPromedio(porGrupo[g].lista.filter(function (t) { return f(t) && t.res && t.dur !== null; }).map(function (t) { return t.dur; }), slaH); row[g].texto = celdaTiempo(row[g]); colsMP(row[g]); });
         return row;
       });
       var otro = { label: 'Otro', otro: true };
-      GRUPOS.forEach(function (g) { otro[g] = modaPromedio(porGrupo[g].lista.filter(function (t) { return claves.indexOf(t[campo]) < 0 && t.res && t.dur !== null; }).map(function (t) { return t.dur; })); otro[g].texto = celdaTiempo(otro[g]); colsMP(otro[g]); });
+      GRUPOS.forEach(function (g) { otro[g] = modaPromedio(porGrupo[g].lista.filter(function (t) { return claves.indexOf(t[campo]) < 0 && t.res && t.dur !== null; }).map(function (t) { return t.dur; }), slaH); otro[g].texto = celdaTiempo(otro[g]); colsMP(otro[g]); });
       filas.push(otro);
       var tot = { label: 'Total', total: true };
       GRUPOS.forEach(function (g) { tot[g] = Object.assign({}, porGrupo[g].tiempo); tot[g].texto = celdaTiempo(tot[g], true); colsMP(tot[g]); });
@@ -709,13 +795,13 @@
         L.forEach(function (t) { var k = t[campo]; if (!por[k]) { por[k] = { label: labelDe(t) || (campo === 'grpK' ? 'Sin grupo asignado' : 'Sin categoría'), lista: [] }; orden.push(k); } por[k].lista.push(t); });
         var filas = orden.map(function (k) {
           var x = por[k], row = { label: x.label };
-          if (tipo === 'tiempo') { row.v = modaPromedio(x.lista.filter(function (t) { return t.res && t.dur !== null; }).map(function (t) { return t.dur; })); row.v.texto = celdaTiempo(row.v); colsMP(row.v); row.orden = row.v.n; }
+          if (tipo === 'tiempo') { row.v = modaPromedio(x.lista.filter(function (t) { return t.res && t.dur !== null; }).map(function (t) { return t.dur; }), slaH); row.v.texto = celdaTiempo(row.v); colsMP(row.v); row.orden = row.v.n; }
           else { row.v = cr(x.lista); row.orden = row.v.creados; }
           return row;
         }).filter(function (r) { return tipo === 'tiempo' ? r.v.n > 0 : r.v.creados > 0; });
         filas.sort(function (a, b) { return b.orden - a.orden || a.label.localeCompare(b.label, 'es'); });
         var tot = { label: 'Total "Otro"', total: true };
-        if (tipo === 'tiempo') { tot.v = modaPromedio(L.filter(function (t) { return t.res && t.dur !== null; }).map(function (t) { return t.dur; })); tot.v.texto = celdaTiempo(tot.v, true); colsMP(tot.v); }
+        if (tipo === 'tiempo') { tot.v = modaPromedio(L.filter(function (t) { return t.res && t.dur !== null; }).map(function (t) { return t.dur; }), slaH); tot.v.texto = celdaTiempo(tot.v, true); colsMP(tot.v); }
         else tot.v = cr(L);
         out[g] = { filas: filas, total: tot };
       });
@@ -1023,9 +1109,43 @@
             e.registros = [regT(x.m === 'solucionados' ? 'Tickets solucionados' : 'Tickets creados', x.m === 'solucionados' ? LsP : Lc)];
           } else {
             var LR2 = Lc.filter(function (t) { return t.res && t.dur !== null; }), mp2 = row[g];
-            e.valor = x.m === 'n' ? miles(mp2.n) + ' tickets resueltos' : x.m === 'moda' ? 'Moda: ' + mp2.modaTxt : x.m === 'prom' ? 'Promedio: ' + mp2.promTxt : mp2.texto;
-            e.definicion = x.m === 'n' ? 'Tickets resueltos (Estado Resuelto o Cerrado) de la fila.' : (x.m === 'moda' ? 'Moda (tiempo más repetido, redondeado a la hora; si hay empate se muestra menor - mayor)' : 'Promedio') + ' del tiempo de resolución (Fecha de solución − Fecha de apertura) de los tickets resueltos de la fila.';
-            e.pasos = x.m === 'n' ? ['Tickets de la fila: ' + miles(Lc.length) + '; resueltos: ' + miles(LR2.length) + '.'] : textoMP(mp2);
+            var mMeta = METRICAS_TIEMPO.filter(function (mm) { return mm.key === x.m; })[0];
+            if (x.m === 'n') {
+              e.valor = miles(mp2.n) + ' tickets resueltos';
+              e.definicion = 'Tickets resueltos (Estado Resuelto o Cerrado) de la fila.';
+              e.pasos = ['Tickets de la fila: ' + miles(Lc.length) + '; resueltos: ' + miles(LR2.length) + '.'];
+            } else if (x.m === 'moda' || x.m === 'prom') {
+              e.valor = (x.m === 'moda' ? 'Moda: ' + mp2.modaTxt : 'Promedio: ' + mp2.promTxt);
+              e.definicion = (x.m === 'moda' ? 'Moda (tiempo más repetido, redondeado a la hora; si hay empate se muestra menor - mayor)' : 'Promedio') + ' del tiempo de resolución (Fecha de solución − Fecha de apertura) de los tickets resueltos de la fila.';
+              e.pasos = textoMP(mp2);
+            } else if (mMeta) {
+              e.valor = metricaLabel(mMeta, slaH) + ': ' + mp2[mMeta.prop];
+              var defsM = {
+                mediana: 'Mediana (Percentil 50): punto medio exacto de los tiempos de resolución ordenados de menor a mayor.',
+                p85: 'Percentil 85 (P85): el 85% de los tickets resueltos se atendieron en este tiempo o menos.',
+                p90: 'Percentil 90 (P90): el 90% de los tickets resueltos se atendieron en este tiempo o menos.',
+                p95: 'Percentil 95 (P95): el 95% de los tickets resueltos se atendieron en este tiempo o menos.',
+                sla: 'Cumplimiento de SLA: porcentaje de tickets resueltos en ' + slaH + ' horas o menos.',
+                iqr: 'Rango Intercuartílico (IQR = Q3 − Q1): dispersión del 50% central de los tickets resueltos.',
+                desv: 'Desviación Estándar: qué tanto se alejan los tiempos de resolución respecto al promedio.',
+                minMax: 'Mínimo y Máximo: tiempo más rápido y más lento entre los tickets resueltos de la fila.',
+                outliers: 'Outliers (casos atípicos): tickets resueltos cuyo tiempo supera Q3 + 1,5 × IQR (se calcula con 4 o más tickets).',
+                buckets: 'Distribución por rangos de tiempo de resolución: ≤ 8h (Mesa Trabajo), 8–24h (Objetivo), 24–48h (Aceptable), 48–72h (Límite legal), > 72h (Compensación).'
+              };
+              e.definicion = defsM[x.m] || mMeta.label;
+              e.pasos = !mp2.n ? ['No hay tickets resueltos en esta fila.'] : [
+                'Tickets resueltos analizados: ' + miles(mp2.n) + '.',
+                'Mediana (P50): ' + mp2.medianaTxt + ' · P85: ' + mp2.p85Txt + ' · P90: ' + mp2.p90Txt + ' · P95: ' + mp2.p95Txt + '.',
+                'SLA ≤ ' + slaH + 'h: ' + miles(mp2.slaN) + ' de ' + miles(mp2.n) + ' (' + mp2.slaTxt + ').',
+                'IQR: ' + mp2.iqrTxt + ' (Q1: ' + fmtD(mp2.q1) + ', Q3: ' + fmtD(mp2.q3) + ') · Desv. Estándar: ' + mp2.desvTxt + '.',
+                'Mínimo: ' + fmtD(mp2.min) + ' · Máximo: ' + fmtD(mp2.max) + ' · Outliers (> ' + fmtD(mp2.umbralOutlier) + '): ' + mp2.outliersTxt + '.',
+                'Rangos: ≤8h: ' + miles(mp2.buckets.b8) + ' (' + pct(mp2.buckets.b8 / mp2.n) + ') · 8-24h: ' + miles(mp2.buckets.b24) + ' (' + pct(mp2.buckets.b24 / mp2.n) + ') · 24-48h: ' + miles(mp2.buckets.b48) + ' (' + pct(mp2.buckets.b48 / mp2.n) + ') · 48-72h: ' + miles(mp2.buckets.b72) + ' (' + pct(mp2.buckets.b72 / mp2.n) + ') · >72h: ' + miles(mp2.buckets.bMas) + ' (' + pct(mp2.buckets.bMas / mp2.n) + ').'
+              ];
+            } else {
+              e.valor = mp2.texto;
+              e.definicion = 'Tiempo de resolución de los tickets resueltos de la fila.';
+              e.pasos = textoMP(mp2);
+            }
             e.registros = [regT('Tickets resueltos de la fila', LR2)];
           }
           break;
@@ -1126,6 +1246,8 @@
       controles: controles,
       volumen: { glpi: T.length, tipSA: tipSA.length, tipMes: tipMes.length },
       opciones: { categorias: lista(oc), grupos: lista(og), ftth: lista(of) },
+      slaHoras: slaH,
+      metricasTiempo: Array.isArray(cfg.metricasTiempo) && cfg.metricasTiempo.length ? cfg.metricasTiempo.slice() : DEFAULTS.metricasTiempo.slice(),
       explicar: explicar,
       reincExcluidas: (cfg.reincExcluir || []).map(homologar)
     };
@@ -1143,7 +1265,7 @@
   }
 
   var api = {
-    VERSION: 2, DEFAULTS: DEFAULTS, GRUPOS: GRUPOS, ETIQUETAS: ETIQUETAS, ETIQUETAS_LARGAS: ETIQUETAS_LARGAS,
+    VERSION: 2, DEFAULTS: DEFAULTS, GRUPOS: GRUPOS, ETIQUETAS: ETIQUETAS, ETIQUETAS_LARGAS: ETIQUETAS_LARGAS, SLA_OPCIONES: SLA_OPCIONES, METRICAS_TIEMPO: METRICAS_TIEMPO, metricaLabel: metricaLabel,
     compute: compute, snapshot: snapshot, loadGLPI: loadGLPI, loadTipif: loadTipif,
     parseDate: parseDate, serialFromParts: serialFromParts, partsFromSerial: partsFromSerial, dayName: dayName,
     fmtD: fmtD, fmtPalabras: fmtPalabras, fmtDate: fmtDate, miles: miles, pct: pct, tickets: tickets, catCorta: catCorta,

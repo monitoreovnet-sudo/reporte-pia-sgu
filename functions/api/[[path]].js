@@ -262,6 +262,12 @@ async function guardarFiltros(db, req, yo) {
   ['sucursal', 'sguMarker', 'piaSolicitante'].forEach((k) => { if (typeof b.filtros[k] === 'string') limpio[k] = b.filtros[k].slice(0, 200); });
   if (typeof b.filtros.version === 'number') limpio.version = b.filtros.version;
   if (b.filtros.semanaModo === 1 || b.filtros.semanaModo === 2) limpio.semanaModo = b.filtros.semanaModo;
+  if ([8, 24, 48, 72].includes(Number(b.filtros.slaHoras))) limpio.slaHoras = Number(b.filtros.slaHoras);
+  const METRICAS_OK = ['moda', 'prom', 'mediana', 'p85', 'p90', 'p95', 'sla', 'iqr', 'desv', 'minMax', 'outliers', 'buckets'];
+  if (Array.isArray(b.filtros.metricasTiempo)) {
+    const m = METRICAS_OK.filter((k) => b.filtros.metricasTiempo.includes(k));
+    if (m.length) limpio.metricasTiempo = m;
+  }
   await db.prepare(`INSERT INTO config (clave, valor, actualizado, actualizado_por) VALUES ('filtros', ?, ?, ?) ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor, actualizado = excluded.actualizado, actualizado_por = excluded.actualizado_por`)
     .bind(JSON.stringify(limpio), ahoraISO(), yo.email).run();
   return json({ ok: true });
