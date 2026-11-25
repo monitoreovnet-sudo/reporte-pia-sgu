@@ -32,7 +32,7 @@
     reincExcluir: ['Cobranzas Masivas > FTTH > Ajuste de facturación', 'Cobranzas Masivas > FTTH > Reembolso', 'FTTH > Cambio de plan'],
     gruposNegrita: ['ATC No Presencial', 'Cobranzas Masivas', 'Contratista San Agustín', 'Tesoreria Masivos'],
     slaHoras: 24,
-    metricasTiempo: ['moda', 'prom']
+    metricasTiempo: ['mediana', 'sla']
   };
 
   var SLA_OPCIONES = [

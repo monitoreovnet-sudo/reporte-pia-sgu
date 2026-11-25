@@ -106,7 +106,7 @@
       return { head1: [{ text: label, o: { rowspan: 2, align: 'left' } }, { text: R.etiquetasLargas[a], o: { colspan: cols.length } }, { text: R.etiquetasLargas[b], o: { colspan: cols.length } }],
         head2: cols.concat(cols).map(function (c) { return { text: c }; }) };
     };
-    var mKeys = Array.isArray(R.metricasTiempo) && R.metricasTiempo.length ? R.metricasTiempo : ['moda', 'prom'];
+    var mKeys = Array.isArray(R.metricasTiempo) && R.metricasTiempo.length ? R.metricasTiempo : E.DEFAULTS.metricasTiempo;
     var mList = E.METRICAS_TIEMPO.filter(function (m) { return mKeys.indexOf(m.key) >= 0; });
     if (!mList.length) mList = E.METRICAS_TIEMPO.slice(0, 2);
     var mCols = ['Tickets resueltos'].concat(mList.map(function (m) { return E.metricaLabel(m, R.slaHoras); }));
@@ -201,11 +201,20 @@
       var cmp = R.comparativos[a + '_' + b];
       card(s, cx, y + 3 * (ch + gy), cw, ch, { label: 'Promedio', chip: b, value: fmtD(G[b].prom), size: 18, sub: cmp && cmp.ganador ? 'Diferencia: ' + cmp.valor + ' a favor de ' + L[cmp.ganador] : '' });
     }
-    var leyendaExtra = [];
-    if (mKeys.indexOf('sla') >= 0) leyendaExtra.push('SLA ≤ ' + (R.slaHoras || 24) + 'h');
-    if (mKeys.indexOf('outliers') >= 0) leyendaExtra.push('Outliers: > Q3 + 1,5·IQR');
-    if (mKeys.indexOf('buckets') >= 0) leyendaExtra.push('Rangos: ≤8h (Mesa Trabajo), 8-24h (Objetivo), 24-48h (Aceptable), 48-72h (Límite legal), >72h (Compensación)');
-    var leyenda = 'Moda: tiempo más repetido (2 o más tickets), redondeado a la hora; si hay empate, menor - mayor · Promedio de los tickets resueltos o cerrados.' + (leyendaExtra.length ? ' · ' + leyendaExtra.join(' · ') + '.' : '');
+    var slaL = Number(R.slaHoras) || 24;
+    var leyP = [];
+    if (mKeys.indexOf('moda') >= 0) leyP.push('Moda: tiempo más repetido (2 o más tickets), redondeado a la hora; si hay empate, menor - mayor');
+    if (mKeys.indexOf('prom') >= 0) leyP.push('Promedio de los tickets resueltos o cerrados');
+    if (mKeys.indexOf('mediana') >= 0) leyP.push('Mediana: tiempo central de los tickets resueltos o cerrados (la mitad se resolvió en menos)');
+    if (mKeys.indexOf('p85') >= 0) leyP.push('P85: el 85% se resolvió en este tiempo o menos');
+    if (mKeys.indexOf('p90') >= 0) leyP.push('P90: el 90% se resolvió en este tiempo o menos');
+    if (mKeys.indexOf('p95') >= 0) leyP.push('P95: el 95% se resolvió en este tiempo o menos');
+    if (mKeys.indexOf('sla') >= 0) leyP.push('SLA ≤ ' + slaL + 'h: % de tickets resueltos en ' + slaL + ' horas o menos');
+    if (mKeys.indexOf('iqr') >= 0) leyP.push('IQR: Q3 − Q1');
+    if (mKeys.indexOf('desv') >= 0) leyP.push('Desv. Est.: desviación estándar');
+    if (mKeys.indexOf('outliers') >= 0) leyP.push('Outliers: > Q3 + 1,5·IQR');
+    if (mKeys.indexOf('buckets') >= 0) leyP.push('Rangos: ≤8h (Mesa Trabajo), 8-24h (Objetivo), 24-48h (Aceptable), 48-72h (Límite legal), >72h (Compensación)');
+    var leyenda = leyP.join(' · ') + (leyP.length ? '.' : '');
     var leyendaGrupo = leyenda + ' Grupo: uno por ticket. Si la última línea es Cobranzas Masivas, Cobranzas Masivas; si no, la última línea que esté en la lista de grupos del reporte; si ninguna está, la última línea.';
 
     /* ---------- Canal de creación (barras 100 % apiladas con porcentajes) ---------- */

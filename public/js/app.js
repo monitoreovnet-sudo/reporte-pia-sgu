@@ -651,7 +651,7 @@
     var warn = st.picked.length > 4 ? '<p class="hint" style="color:var(--brand)">Con más de 4 métricas, la fuente de la tabla en PowerPoint se reduce automáticamente para que quepa.</p>' : '';
     return '<div class="flist"><label class="hint" style="display:block;margin-bottom:4px">SLA objetivo (Informe y Presentación)</label>' +
       '<select class="input" data-role="sla" style="margin-bottom:8px">' + slaOpts + '</select>' +
-      '<div class="tools"><button type="button" data-role="mall">Todas</button><button type="button" data-role="morig">Moda y Prom.</button></div>' +
+      '<div class="tools"><button type="button" data-role="mall">Todas</button><button type="button" data-role="morig">Mediana y SLA</button></div>' +
       '<div class="opts">' + cbs + '</div>' + warn +
       '<p class="hint">Elige qué columnas aparecen en las tablas de tiempo de la Presentación (Categoría, Grupo técnico y desgloses de "Otro"). El Informe y el Excel siempre muestran todas.</p>' +
       '<div class="apply"><button type="button" class="btn sm" data-role="mcancel">Cancelar</button><button type="button" class="btn sm primary" data-role="mapply">Aplicar</button></div></div>';
