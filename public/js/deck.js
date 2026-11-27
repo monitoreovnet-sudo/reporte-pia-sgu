@@ -217,11 +217,11 @@
       mini(lx, 4.15, hw, 1.0, 'Reincidencia fallas FTTH', pct(G.sgu.reinc.pct), miles(G.sgu.reinc.abonados) + ' abon. (País ' + pct(G.pais.reinc.pct) + ') · General: ' + pct(R.reincidenciaGeneral.pct));
       mini(lx + hw + 0.17, 4.15, hw, 1.0, 'Productividad del punto PIA', miles(F.productividad.casos) + ' casos', miles(u.n) + (u.n === 1 ? ' upgrade' : ' upgrades') + ' · ' + miles(v.n) + ' SVA (País: ' + miles(up.n) + ' · ' + miles(vp.n) + ')');
       // gráfico combinado semanal
-      var dl = function (f) { return ({ Lunes: 'L', Martes: 'M', 'Miércoles': 'X', Jueves: 'J', Viernes: 'V', 'Sábado': 'S', Domingo: 'D' }[f.dia] || f.dia.charAt(0)) + f.fecha.slice(0, 2); };
+      var dl = function (f) { return f.dia.charAt(0) + f.fecha.slice(0, 2); };
       var labs = RS.filas.map(dl), last = 0;
       var linea = function (RR) { return RR.filas.map(function (f) { last = f.s.pct === null ? last : Math.round(f.s.pct * 100); return last; }); };
       var rx = 5.65, rw = 7.25;
-      var barOpts = { chartColors: [C.purple, C.lilac], barGrouping: 'clustered', barGapWidthPct: 50 };
+      var barOpts = { chartColors: [C.purple, C.lilac], barGrouping: 'clustered', barGapWidthPct: 50, showValue: true, dataLabelPosition: 'outEnd', dataLabelFontSize: 8, dataLabelColor: C.ink, dataLabelFontFace: FONT };
       var lineOpts = { chartColors: [C.ink, '3D6BFF'], secondaryValAxis: true, secondaryCatAxis: true, lineSize: 2, lineDataSymbol: 'circle', lineDataSymbolSize: 6 };
       last = 0; var lS = linea(RS); last = 0; var lP = linea(RP);
       s.addChart([
@@ -230,7 +230,7 @@
       ], {
         x: rx, y: 1.4, w: rw, h: 2.4, showLegend: true, legendPos: 't', legendFontFace: FONT, legendFontSize: 8, legendColor: C.ink,
         catAxisLabelFontFace: FONT, catAxisLabelFontSize: 9, catAxisLabelColor: C.ink,
-        valAxes: [{ valAxisLabelFontFace: FONT, valAxisLabelFontSize: 8, valAxisLabelColor: C.muted, valGridLine: { color: 'EEE8F7', size: 0.5 }, valAxisMinVal: 0 },
+        valAxes: [{ valAxisHidden: true, valAxisLineShow: false, valGridLine: { color: 'EEE8F7', size: 0.5 }, valAxisMinVal: 0 },
           { valAxisLabelFontFace: FONT, valAxisLabelFontSize: 8, valAxisLabelColor: C.muted, valAxisMinVal: 0, valAxisMaxVal: 100, valAxisMajorUnit: 25, valAxisLabelFormatCode: '0"%"', valGridLine: { style: 'none' } }],
         catAxes: [{ catAxisLabelFontFace: FONT, catAxisLabelFontSize: 9 }, { catAxisHidden: true }]
       });

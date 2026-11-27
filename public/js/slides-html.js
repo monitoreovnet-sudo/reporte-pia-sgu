@@ -150,21 +150,25 @@
     var W = o.w * PX, H = o.h * PX, B = e.type[0], Ln = e.type[1], ds = B.data, ls = Ln.data;
     var bc = (B.options.chartColors || ['440099']).map(function (c) { return col(c); }), lc = (Ln.options.chartColors || ['241338']).map(function (c) { return col(c); });
     var labels = ds[0].labels, n = labels.length || 1, ns = ds.length;
-    var top = 30, bot = 24, left = 30, right = 42, pw = W - left - right, ph = H - top - bot;
+    var vAx0 = o.valAxes && o.valAxes[0] ? o.valAxes[0] : {};
+    var hideLeft = !!(vAx0.valAxisHidden || o.valAxisHidden), showBarVal = !!(B.options && B.options.showValue);
+    var top = showBarVal ? 38 : 30, bot = 24, left = hideLeft ? 12 : 30, right = 42, pw = W - left - right, ph = H - top - bot;
     var svg = svgEl('svg', { width: W, height: H, viewBox: '0 0 ' + W + ' ' + H });
     svg.style.position = 'absolute'; svg.style.left = '0'; svg.style.top = '0';
     var mx = Math.max.apply(null, ds.reduce(function (a, s) { return a.concat(s.values); }, [1])), step = mx <= 5 ? 1 : (mx <= 10 ? 2 : 5), maxB = Math.ceil(mx / step) * step;
     for (var k = 0; k <= 4; k++) {
       var y = top + ph - ph * k / 4;
       svg.appendChild(svgEl('line', { x1: left, x2: left + pw, y1: y, y2: y, stroke: '#EEE8F7' }));
-      svgText(svg, left - 6, y, String(Math.round(maxB * k / 4 * 10) / 10), { anchor: 'end', size: 8 * PT, fill: '#7A6E8A' });
+      if (!hideLeft) svgText(svg, left - 6, y, String(Math.round(maxB * k / 4 * 10) / 10), { anchor: 'end', size: 8 * PT, fill: '#7A6E8A' });
       svgText(svg, left + pw + 6, y, (25 * k) + '%', { anchor: 'start', size: 8 * PT, fill: '#7A6E8A' });
     }
     var slot = pw / n, gap = (B.options.barGapWidthPct != null ? B.options.barGapWidthPct : 60) / 100, band = slot / (1 + gap), bw = band / ns;
+    var lblSize = ((B.options && B.options.dataLabelFontSize) || 7.5) * PT, lblColor = col((B.options && B.options.dataLabelColor) || '#241338');
     labels.forEach(function (lab, i) {
       ds.forEach(function (s, si) {
-        var v = s.values[i] || 0, h = ph * v / maxB;
-        svg.appendChild(svgEl('rect', { x: left + i * slot + (slot - band) / 2 + si * bw, y: top + ph - h, width: bw - 1, height: Math.max(h, 0), fill: bc[si % bc.length] }));
+        var v = s.values[i] || 0, h = ph * v / maxB, bx = left + i * slot + (slot - band) / 2 + si * bw, by = top + ph - h;
+        svg.appendChild(svgEl('rect', { x: bx, y: by, width: bw - 1, height: Math.max(h, 0), fill: bc[si % bc.length] }));
+        if (showBarVal) svgText(svg, bx + (bw - 1) / 2, by - 6, String(v), { size: lblSize, fill: lblColor, bold: !!(B.options && B.options.dataLabelFontBold) });
       });
       svgText(svg, left + i * slot + slot / 2, top + ph + 12, lab, { size: 9 * PT, fill: '#241338' });
     });
