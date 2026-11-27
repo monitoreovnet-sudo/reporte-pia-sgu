@@ -251,7 +251,7 @@
         .concat(labs.map(function (l) { return { text: l, o: { fill: { color: C.purple }, color: C.white } }; }), [{ text: 'Total', o: { fill: { color: C.purple }, color: C.white } }]);
       tabla(s, { head1: hd, rows: rows, x: rx, y: 3.88, w: rw, colW: [c0].concat(new Array(nd).fill(cd), [ctot]), rowH: 0.23, fontSize: 8, colsTotal: [nd + 1] });
       // inferior izquierda: resueltos por categoría
-      var by = 5.3, bh = 1.55, bw1 = 4.0;
+      var by = 5.3, bh = 1.55, bw1 = lw;
       box(s, lx, by, bw1, bh);
       txt(s, 'RESUELTOS POR CATEGORÍA · SGU (' + miles(G.sgu.solucionados) + ')', { x: lx + 0.14, y: by + 0.07, w: bw1 - 0.28, h: 0.24, fontSize: 8.5, bold: true, valign: 'middle', fit: 'shrink' });
 var CATS_MEDIANA = [
@@ -274,7 +274,7 @@ var CATS_MEDIANA = [
         var d = catMap[E.norm(c)] || { creados: 0, solucionados: 0 };
         return { lab: E.catCorta(c), c: d.creados || 0, s: d.solucionados || 0 };
       }).sort(function (a, b) { return b.c - a.c || b.s - a.s; });
-      var cmax = Math.max.apply(null, filasC.map(function (f) { return f.c; }).concat([1])), labW = 1.42, barMax = 1.25;
+      var cmax = Math.max.apply(null, filasC.map(function (f) { return f.c; }).concat([1])), labW = 1.42, barMax = 2.2;
       filasC.forEach(function (f, i) {
         var yy = by + 0.33 + i * 0.168, p = f.c ? f.s / f.c : null, baja = p !== null && p < UMBRAL_SEMANAL;
         var pend = Math.max(0, f.c - f.s), bx = lx + 0.14 + labW, barY = yy + 0.025, barH = 0.12;
@@ -296,18 +296,8 @@ var CATS_MEDIANA = [
       txt(s, 'Resueltos', { x: lx + 0.27, y: by + bh - 0.205, w: 1.0, h: 0.16, fontSize: 7, color: C.muted, valign: 'middle' });
       s.addShape(pptx.ShapeType.rect, { x: lx + 1.35, y: by + bh - 0.17, w: 0.09, h: 0.09, fill: { color: C.lilac }, line: { color: C.lilac, width: 0 } });
       txt(s, 'Pendientes', { x: lx + 1.48, y: by + bh - 0.205, w: 1.2, h: 0.16, fontSize: 7, color: C.muted, valign: 'middle' });
-      // inferior centro: cómo se lee
-      var mx0 = lx + bw1 + 0.17, mw = 4.2;
-      box(s, mx0, by, mw, bh, C.note);
-      txt(s, 'CÓMO SE LEE ESTA LÁMINA CON MEDIANA', { x: mx0 + 0.14, y: by + 0.07, w: mw - 0.28, h: 0.24, fontSize: 8.5, bold: true, color: C.purple, valign: 'middle', fit: 'shrink' });
-      var B = function (a, b) { return [{ text: '• ' + a + ' ', options: { bold: true, color: C.purple, fontSize: 8 } }, { text: b, options: { fontSize: 8, color: C.ink, breakLine: true, paraSpaceBefore: 3 } }]; };
-      txt(s, [].concat(
-        B('Caso típico (P50):', 'muestra cuánto tarda la mitad de los clientes; pocos tickets trancados no deforman el KPI.'),
-        B('Curva semanal:', 'las líneas muestran el ritmo de cierre acumulado frente al país (' + pct(semS) + ' vs. ' + pct(semP) + ') y la brecha con el día.'),
-        B('Extremos aparte:', 'P90 y el recuadro de casos borde dan seguimiento a los clientes más afectados.')
-      ), { x: mx0 + 0.14, y: by + 0.34, w: mw - 0.28, h: bh - 0.42, valign: 'top', fit: 'shrink' });
       // inferior derecha: casos borde
-      var ex = mx0 + mw + 0.17, ew = 12.9 - ex;
+      var ex = rx, ew = rw;
       box(s, ex, by, ew, bh, C.note);
       txt(s, 'CASOS BORDE · FUERA DE MEDIANA', { x: ex + 0.14, y: by + 0.07, w: ew - 1.2, h: 0.24, fontSize: 8.5, bold: true, color: C.purple, valign: 'middle', fit: 'shrink' });
       s.addShape(pptx.ShapeType.roundRect, { x: ex + ew - 0.98, y: by + 0.09, w: 0.84, h: 0.2, rectRadius: 0.1, fill: { color: C.hot }, line: { color: C.hot, width: 0 } });
