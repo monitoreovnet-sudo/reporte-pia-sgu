@@ -193,7 +193,7 @@
       mini(lx, 1.45, hw, 1.0, 'Índice de resolución SGU', pct(F.irSGU.pct), miles(F.irSGU.num) + ' de ' + miles(F.irSGU.den) + ' casos (' + miles(F.irSGU.fcr) + ' FCR + ' + miles(F.irSGU.resPIA + F.irSGU.resOtras) + ' GLPI)');
       mini(lx + hw + 0.17, 1.45, hw, 1.0, '1er contacto · FCR (PIA)', pct(F.fcr.pct), miles(F.fcr.n) + ' de ' + miles(F.fcr.den) + ' casos tipificados');
       // tiempo típico: mediana sin sesgo
-      var ty = 2.55, th = 1.5, mw = 1.38, g1 = 0.10, g2 = 0.14, w3 = lw - 2 * mw - g1 - g2;
+      var ty = 2.55, th = 1.5, mw = 1.34, g1 = 0.09, g2 = 0.12, w3 = lw - 2 * mw - g1 - g2;
       var slaSub = function (x) { return '-24h: ' + pct(x && x.n ? (x.buckets.b8 + x.buckets.b24) / x.n : null) + '  +72h: ' + pct(x && x.n ? x.buckets.bMas / x.n : null); };
       [
         ['MEDIANA SGU', T.n ? fmtD(T.mediana) : '-', slaSub(T)],
@@ -205,17 +205,19 @@
         txt(s, m[1], { x: mx + 0.06, y: ty + 0.48, w: mw - 0.12, h: 0.48, fontSize: 16, bold: true, color: C.purple, align: 'center', valign: 'middle', fit: 'shrink' });
         txt(s, m[2], { x: mx + 0.06, y: ty + 1.04, w: mw - 0.12, h: 0.28, fontSize: 7, color: C.muted, align: 'center', valign: 'middle', fit: 'shrink' });
       });
-      var x3 = lx + 2 * mw + g1 + g2, cw2 = (w3 - 0.2) / 2;
+      var x3 = lx + 2 * mw + g1 + g2;
       box(s, x3, ty, w3, th);
-      s.addShape(pptx.ShapeType.line, { x: x3 + w3 / 2, y: ty + 0.18, w: 0, h: th - 0.36, line: { color: C.cardLine, width: 1 } });
+      txt(s, 'COLA', { x: x3 + 0.06, y: ty + 0.12, w: w3 - 0.12, h: 0.22, fontSize: 8.5, bold: true, color: C.muted, align: 'center', valign: 'middle', fit: 'shrink' });
+      s.addShape(pptx.ShapeType.line, { x: x3 + w3 / 2, y: ty + 0.4, w: 0, h: th - 0.5, line: { color: C.cardLine, width: 1 } });
       [
-        ['En semana', pct(semS), 'País: ' + pct(semP), rojo ? C.red : C.purple],
-        ['Cola P90 SGU', T.n ? fmtD(T.p90) : '-', '1 de cada 10 casos', C.purple]
+        ['SGU', G.sgu.cola],
+        ['PAÍS', G.pais.cola]
       ].forEach(function (m, i) {
-        var cx = x3 + 0.08 + i * (cw2 + 0.08);
-        txt(s, m[0], { x: cx, y: ty + 0.22, w: cw2, h: 0.24, fontSize: 8, color: C.muted, valign: 'middle', fit: 'shrink' });
-        txt(s, m[1], { x: cx, y: ty + 0.52, w: cw2, h: 0.44, fontSize: 12, bold: true, color: m[3], valign: 'middle', fit: 'shrink' });
-        txt(s, m[2], { x: cx, y: ty + 1.04, w: cw2, h: 0.28, fontSize: 7.5, color: C.muted, valign: 'middle', fit: 'shrink' });
+        var cx = x3 + 0.06 + i * (w3 / 2), cwC = w3 / 2 - 0.12, cl = m[1] || { n: 0, pct: null, mediana: null, buckets: { bMas: 0 } };
+        txt(s, m[0], { x: cx, y: ty + 0.36, w: cwC, h: 0.2, fontSize: 7.5, bold: true, color: C.muted, align: 'center', valign: 'middle' });
+        txt(s, [{ text: pct(cl.pct), options: { bold: true, color: C.purple, fontSize: 13 } }, { text: ' sin res.', options: { color: C.muted, fontSize: 7.5 } }], { x: cx, y: ty + 0.56, w: cwC, h: 0.28, align: 'center', valign: 'middle', fit: 'shrink' });
+        txt(s, [{ text: 'Esp. ', options: { color: C.muted, fontSize: 7.5 } }, { text: cl.n ? fmtD(cl.mediana) : '-', options: { bold: true, color: C.ink, fontSize: 9.5 } }], { x: cx, y: ty + 0.86, w: cwC, h: 0.26, align: 'center', valign: 'middle', fit: 'shrink' });
+        txt(s, '+72h: ' + pct(cl.n ? cl.buckets.bMas / cl.n : null), { x: cx, y: ty + 1.14, w: cwC, h: 0.22, fontSize: 7.5, color: C.muted, align: 'center', valign: 'middle', fit: 'shrink' });
       });
       // fila 3: reincidencia FTTH y productividad del punto
       var u = G.sgu.upgrades, v = G.sgu.sva, up = G.pais.upgrades, vp = G.pais.sva;
@@ -366,6 +368,39 @@ var CATS_MEDIANA = [
         var cmp = R.comparativos[a + '_' + b];
         card(s, cx, y + 3 * (ch + gy), cw, ch, { label: 'Promedio', chip: b, value: fmtD(G[b].prom), size: 18, sub: cmp && cmp.ganador ? 'Diferencia: ' + cmp.valor + ' a favor de ' + L[cmp.ganador] : '' });
       }
+    }
+    function laminaCola(a, b) {
+      var s = base('ATC · Tickets en cola: ' + L[a] + ' vs. resto del país');
+      var h = segHead(a, b, 'Categoría', ['En cola', 'Mediana', 'SLA ≤ 24h', 'SLA > 72h']);
+      var cVals = function (mp) {
+        return [
+          E.tickets(mp.n),
+          mp.n ? fmtD(mp.mediana) : '-',
+          mp.n ? pct((mp.buckets.b8 + mp.buckets.b24) / mp.n) : '-',
+          mp.n ? pct(mp.buckets.bMas / mp.n) : '-'
+        ];
+      };
+      var rows = (R.colaCategoria || []).map(function (r) { return { total: r.total, cells: [r.label].concat(cVals(r[a]), cVals(r[b])) }; });
+      var w0 = 2.05, rem = 8.75 - w0, wts = [1.05, 1.0, 0.75, 0.75], sumW = 7.1, cwC = [w0];
+      for (var g = 0; g < 2; g++) wts.forEach(function (w) { cwC.push(Math.round((rem * w / sumW) * 1000) / 1000); });
+      var yEnd = tabla(s, { title: 'Tiempo en cola (sin resolver) por categoría', head1: h.head1, head2: h.head2, rows: rows, x: 0.4, y: 1.45, w: 8.75, colW: cwC, fontSize: 7, h: 4.65, maxRowH: 0.31 });
+      var CA = G[a].cola, CB = G[b].cola;
+      var notaCola = !CA.n && !CB.n
+        ? 'No hay tickets sin resolver en el período.'
+        : L[a] + ' mantiene en cola el ' + pct(CA.pct) + ' de lo creado (' + miles(CA.n) + ' de ' + miles(G[a].creados) + (CA.n ? ', espera mediana ' + fmtD(CA.mediana) : '') + '); ' +
+          (b === 'pais' ? 'el país' : L[b]) + ', el ' + pct(CB.pct) + ' (' + miles(CB.n) + ' de ' + miles(G[b].creados) + (CB.n ? ', espera mediana ' + fmtD(CB.mediana) : '') + ').';
+      note(s, 0.4, yEnd + 0.12, 8.75, 0.5, notaCola);
+      foot(s, 'En cola: tickets con estado distinto de Resuelto o Cerrado. Espera: desde su apertura hasta la fecha de corte (' + R.corteTxt + '). Mediana: 50% espera menos. SLA ≤ 24h y SLA > 72h sobre los tickets en cola.');
+      var cx = 9.4, cw = 3.5, ch = 1.18, gy = 0.13, y = 1.45;
+      var slaEspera = function (cl) {
+        if (!cl || !cl.n) return 'sin tickets en cola';
+        var n24 = cl.buckets.b8 + cl.buckets.b24, n72 = cl.buckets.bMas;
+        return 'SLA ≤ 24h: ' + pct(n24 / cl.n) + ' (' + miles(n24) + ')\nSLA > 72h: ' + pct(n72 / cl.n) + ' (' + miles(n72) + ')';
+      };
+      card(s, cx, y, cw, ch, { label: 'En cola', chip: a, value: miles(CA.n), unit: 'tickets (' + pct(CA.pct) + ')', sub: 'de ' + miles(G[a].creados) + ' tickets creados en el período', size: 20 });
+      card(s, cx, y + (ch + gy), cw, ch, { label: 'En cola', chip: b, value: miles(CB.n), unit: 'tickets (' + pct(CB.pct) + ')', sub: 'de ' + miles(G[b].creados) + ' tickets creados en el período', size: 20 });
+      card(s, cx, y + 2 * (ch + gy), cw, ch, { label: 'Mediana de espera', chip: a, value: CA.n ? fmtD(CA.mediana) : '-', size: 18, sub: slaEspera(CA) });
+      card(s, cx, y + 3 * (ch + gy), cw, ch, { label: 'Mediana de espera', chip: b, value: CB.n ? fmtD(CB.mediana) : '-', size: 18, sub: slaEspera(CB) });
     }
     var slaL = Number(R.slaHoras) || 24;
     var leyP = [];
@@ -759,6 +794,7 @@ var CATS_MEDIANA = [
       laminaMediana();
       laminaTiempo('sgu', 'pais', 'ATC · Tiempo de resolución: SGU vs. resto del país', leyendaPais, notaBrecha('sgu', 'pais'));
       laminaOtro('tiempoCategoria', 'sgu');
+      laminaCola('sgu', 'pais');
       laminaCanal();
       laminaProdSGU();
       laminaOtro('productividad', 'sgu');

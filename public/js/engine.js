@@ -505,6 +505,9 @@
       P.creados = L.length;
       P.solucionados = L.filter(function (t) { return t.res; }).length;
       P.tiempo = modaPromedio(L.filter(function (t) { return t.res && t.dur !== null; }).map(function (t) { return t.dur; }), cfg.slaHoras);
+      var sinResL = L.filter(function (t) { return !t.res; });
+      P.cola = modaPromedio(sinResL.map(function (t) { return Math.max(0, Math.round((FD - t.raw.apertura) * 86400)); }), slaH);
+      P.cola.pct = P.creados ? sinResL.length / P.creados : null;
       /* casos borde: lo que la mediana no recoge (cola > 72 h, caso máximo, pendientes) */
       var rsB = L.filter(function (t) { return t.res && t.dur !== null; });
       var mxB = rsB.reduce(function (a, t) { return !a || t.dur > a.dur ? t : a; }, null);
@@ -776,7 +779,23 @@
       filas.push(tot);
       return filas;
     }
+    function tablaCola(campo, etiquetas, claves) {
+      var esperaDe = function (t) { return Math.max(0, Math.round((FD - t.raw.apertura) * 86400)); };
+      var filas = etiquetas.map(function (lab, i) {
+        var f = function (t) { return t[campo] === claves[i]; }, row = { label: lab };
+        GRUPOS.forEach(function (g) { row[g] = modaPromedio(porGrupo[g].lista.filter(function (t) { return f(t) && !t.res; }).map(esperaDe), slaH); colsMP(row[g]); });
+        return row;
+      });
+      var otro = { label: 'Otro', otro: true };
+      GRUPOS.forEach(function (g) { otro[g] = modaPromedio(porGrupo[g].lista.filter(function (t) { return claves.indexOf(t[campo]) < 0 && !t.res; }).map(esperaDe), slaH); colsMP(otro[g]); });
+      filas.push(otro);
+      var tot = { label: 'Total', total: true };
+      GRUPOS.forEach(function (g) { tot[g] = Object.assign({}, porGrupo[g].cola); colsMP(tot[g]); });
+      filas.push(tot);
+      return filas;
+    }
     var tiempoCategoria = tablaTiempo('catK', cfg.categorias, catKeys);
+    var colaCategoria = tablaCola('catK', cfg.categorias, catKeys);
     var tiempoGrupo = tablaTiempo('grpK', gruposU, grpKeys);
 
     /* --- tabla 5.3 --- */
@@ -1203,9 +1222,9 @@
     var resumenGrupos = {};
     GRUPOS.forEach(function (g) {
       var P = porGrupo[g];
-      resumenGrupos[g] = {
+resumenGrupos[g] = {
         creados: P.creados, solucionados: P.solucionados, pctSol: P.creados ? P.solucionados / P.creados : null,
-        prom: P.tiempo.prom, tiempo: P.tiempo, bordes: P.bordes, moda: P.tiempo.moda, modaTxt: P.tiempo.moda === 0 && P.tiempo.modas.length <= 1 ? null : fmtModa(P.tiempo), semana: P.semana, gestion: P.gestion, jornada: P.jornada, resolucion: P.resolucion,
+        prom: P.tiempo.prom, tiempo: P.tiempo, cola: P.cola, bordes: P.bordes, moda: P.tiempo.moda, modaTxt: P.tiempo.moda === 0 && P.tiempo.modas.length <= 1 ? null : fmtModa(P.tiempo), semana: P.semana, gestion: P.gestion, jornada: P.jornada, resolucion: P.resolucion,
         reinc: P.reinc, reincGen: P.reincGen, upgrades: P.upgrades, sva: P.sva
       };
     });
@@ -1243,7 +1262,7 @@
       ventana: { desde: fmtDate(wIni), hasta: fmtDate(wFin - 1), corta: partsFromSerial(wIni).d + '–' + fmtDM(wFin - 1) },
       etiquetas: ETIQUETAS, etiquetasLargas: ETIQUETAS_LARGAS,
       fijos: fijos, g: resumenGrupos, comparativos: comparativos,
-      tiempoCategoria: tiempoCategoria, tiempoGrupo: tiempoGrupo, productividad: productividad, otros: otros, clientesReinc: clientesReinc,
+      tiempoCategoria: tiempoCategoria, colaCategoria: colaCategoria, tiempoGrupo: tiempoGrupo, productividad: productividad, otros: otros, clientesReinc: clientesReinc,
       reincidencia: porGrupo.sgu.reinc,
       reincidenciaGeneral: porGrupo.sgu.reincGen,
       revision: { pendientes: colaRevision, revisados: revisadosLista, total: colaRevision.length + revisadosLista.length },
