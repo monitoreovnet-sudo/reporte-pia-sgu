@@ -251,23 +251,48 @@
       var by = 5.3, bh = 1.55, bw1 = 4.0;
       box(s, lx, by, bw1, bh);
       txt(s, 'RESUELTOS POR CATEGORÍA · SGU (' + miles(G.sgu.solucionados) + ')', { x: lx + 0.14, y: by + 0.07, w: bw1 - 0.28, h: 0.24, fontSize: 8.5, bold: true, valign: 'middle', fit: 'shrink' });
-      var cats = R.productividad.filter(function (r) { return !r.estatus && !r.total && r.label !== 'Otro' && r.sgu.creados; }).sort(function (a, b) { return b.sgu.creados - a.sgu.creados; });
-      var top4 = cats.slice(0, 4), resto = cats.slice(4);
-      var otroP = R.productividad.filter(function (r) { return r.label === 'Otro'; })[0];
-      var rc = resto.reduce(function (a, r) { return { c: a.c + r.sgu.creados, s: a.s + r.sgu.solucionados }; }, { c: otroP ? otroP.sgu.creados : 0, s: otroP ? otroP.sgu.solucionados : 0 });
-      var filasC = top4.map(function (r) { return { lab: E.catCorta(r.label), c: r.sgu.creados, s: r.sgu.solucionados, adm: !/ftth/i.test(r.label) || /cobranzas/i.test(r.label) }; });
-      if (rc.c) filasC.push({ lab: 'Otras (' + (resto.length + (otroP && otroP.sgu.creados ? 1 : 0)) + ' cat.)', c: rc.c, s: rc.s, adm: true });
-      var smax = Math.max.apply(null, filasC.map(function (f) { return f.s; }).concat([1])), labW = 1.25, barMax = 1.35;
-      filasC.forEach(function (f, i) {
-        var yy = by + 0.34 + i * 0.185, p = f.c ? f.s / f.c : null, baja = p !== null && p < UMBRAL_SEMANAL;
-        txt(s, f.lab, { x: lx + 0.14, y: yy, w: labW, h: 0.19, fontSize: 7.5, valign: 'middle', fit: 'shrink' });
-        s.addShape(pptx.ShapeType.roundRect, { x: lx + 0.14 + labW, y: yy + 0.03, w: Math.max(0.04, barMax * f.s / smax), h: 0.13, rectRadius: 0.03, fill: { color: f.adm ? 'C9C2D4' : C.purple }, line: { color: f.adm ? 'C9C2D4' : C.purple, width: 0 } });
-        txt(s, miles(f.s) + '/' + miles(f.c) + ' (' + pct(p) + ')', { x: lx + 0.14 + labW + Math.max(0.04, barMax * f.s / smax) + 0.06, y: yy, w: 1.2, h: 0.19, fontSize: 7.5, bold: true, color: baja ? C.hot : C.ink, valign: 'middle' });
+var CATS_MEDIANA = [
+        'FTTH > Configuración de canales',
+        'FTTH > Configuración de equipo',
+        'FTTH > Intermitencias',
+        'FTTH > Sin conexión',
+        'FTTH > Visita técnica',
+        'FTTH > Reconexión del servicio'
+      ];
+      var catMap = {};
+      R.productividad.forEach(function (r) {
+        if (!r.estatus && !r.total && !r.otro) catMap[E.norm(r.label)] = r.sgu;
       });
-      s.addShape(pptx.ShapeType.roundRect, { x: lx + 0.14, y: by + bh - 0.17, w: 0.09, h: 0.09, rectRadius: 0.01, fill: { color: C.purple }, line: { color: C.purple, width: 0 } });
-      txt(s, 'Falla técnica / FTTH', { x: lx + 0.27, y: by + bh - 0.215, w: 1.3, h: 0.18, fontSize: 7, color: C.muted, valign: 'middle' });
-      s.addShape(pptx.ShapeType.roundRect, { x: lx + 1.65, y: by + bh - 0.17, w: 0.09, h: 0.09, rectRadius: 0.01, fill: { color: 'C9C2D4' }, line: { color: 'C9C2D4', width: 0 } });
-      txt(s, 'Admin. / Otros', { x: lx + 1.78, y: by + bh - 0.215, w: 1.3, h: 0.18, fontSize: 7, color: C.muted, valign: 'middle' });
+      ((R.otros && R.otros.productividad && R.otros.productividad.sgu && R.otros.productividad.sgu.filas) || []).forEach(function (r) {
+        var k = E.norm(r.label);
+        if (!catMap[k]) catMap[k] = r.v;
+      });
+      var filasC = CATS_MEDIANA.map(function (c) {
+        var d = catMap[E.norm(c)] || { creados: 0, solucionados: 0 };
+        return { lab: E.catCorta(c), c: d.creados || 0, s: d.solucionados || 0 };
+      }).sort(function (a, b) { return b.c - a.c || b.s - a.s; });
+      var cmax = Math.max.apply(null, filasC.map(function (f) { return f.c; }).concat([1])), labW = 1.42, barMax = 1.25;
+      filasC.forEach(function (f, i) {
+        var yy = by + 0.33 + i * 0.168, p = f.c ? f.s / f.c : null, baja = p !== null && p < UMBRAL_SEMANAL;
+        var pend = Math.max(0, f.c - f.s), bx = lx + 0.14 + labW, barY = yy + 0.025, barH = 0.12;
+        var wTot = f.c ? Math.max(0.04, barMax * f.c / cmax) : 0;
+        txt(s, f.lab, { x: lx + 0.14, y: yy, w: labW, h: 0.17, fontSize: 6.8, valign: 'middle', fit: 'shrink' });
+        if (wTot > 0) {
+          if (f.s > 0 && pend > 0) {
+            var wRes = Math.max(0.02, Math.min(wTot - 0.02, wTot * f.s / f.c)), wPend = wTot - wRes;
+            s.addShape(pptx.ShapeType.rect, { x: bx, y: barY, w: wRes, h: barH, fill: { color: C.purple }, line: { color: C.purple, width: 0 } });
+            s.addShape(pptx.ShapeType.rect, { x: bx + wRes, y: barY, w: wPend, h: barH, fill: { color: C.lilac }, line: { color: C.lilac, width: 0 } });
+          } else {
+            var colBar = f.s > 0 ? C.purple : C.lilac;
+            s.addShape(pptx.ShapeType.rect, { x: bx, y: barY, w: wTot, h: barH, fill: { color: colBar }, line: { color: colBar, width: 0 } });
+          }
+        }
+        txt(s, miles(f.s) + '/' + miles(f.c) + ' (' + pct(p) + ')', { x: bx + wTot + 0.06, y: yy, w: bw1 - 0.14 - labW - wTot - 0.1, h: 0.17, fontSize: 7, bold: true, color: baja ? C.hot : C.ink, valign: 'middle', fit: 'shrink' });
+      });
+      s.addShape(pptx.ShapeType.rect, { x: lx + 0.14, y: by + bh - 0.17, w: 0.09, h: 0.09, fill: { color: C.purple }, line: { color: C.purple, width: 0 } });
+      txt(s, 'Resueltos', { x: lx + 0.27, y: by + bh - 0.205, w: 1.0, h: 0.16, fontSize: 7, color: C.muted, valign: 'middle' });
+      s.addShape(pptx.ShapeType.rect, { x: lx + 1.35, y: by + bh - 0.17, w: 0.09, h: 0.09, fill: { color: C.lilac }, line: { color: C.lilac, width: 0 } });
+      txt(s, 'Pendientes', { x: lx + 1.48, y: by + bh - 0.205, w: 1.2, h: 0.16, fontSize: 7, color: C.muted, valign: 'middle' });
       // inferior centro: cómo se lee
       var mx0 = lx + bw1 + 0.17, mw = 4.2;
       box(s, mx0, by, mw, bh, C.note);
