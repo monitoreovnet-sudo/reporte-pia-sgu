@@ -505,6 +505,11 @@
       P.creados = L.length;
       P.solucionados = L.filter(function (t) { return t.res; }).length;
       P.tiempo = modaPromedio(L.filter(function (t) { return t.res && t.dur !== null; }).map(function (t) { return t.dur; }), cfg.slaHoras);
+      /* casos borde: lo que la mediana no recoge (cola > 72 h, caso máximo, pendientes) */
+      var rsB = L.filter(function (t) { return t.res && t.dur !== null; });
+      var mxB = rsB.reduce(function (a, t) { return !a || t.dur > a.dur ? t : a; }, null);
+      P.bordes = { n: rsB.length, mayor72: rsB.filter(function (t) { return t.dur > 72 * 3600; }).length,
+        max: mxB ? { id: mxB.id, dur: mxB.dur, cat: mxB.cat } : null, pendientes: P.creados - P.solucionados };
     });
 
     /* --- 4.1 fijos --- */
@@ -1200,7 +1205,7 @@
       var P = porGrupo[g];
       resumenGrupos[g] = {
         creados: P.creados, solucionados: P.solucionados, pctSol: P.creados ? P.solucionados / P.creados : null,
-        prom: P.tiempo.prom, moda: P.tiempo.moda, modaTxt: P.tiempo.moda === 0 && P.tiempo.modas.length <= 1 ? null : fmtModa(P.tiempo), semana: P.semana, gestion: P.gestion, jornada: P.jornada, resolucion: P.resolucion,
+        prom: P.tiempo.prom, tiempo: P.tiempo, bordes: P.bordes, moda: P.tiempo.moda, modaTxt: P.tiempo.moda === 0 && P.tiempo.modas.length <= 1 ? null : fmtModa(P.tiempo), semana: P.semana, gestion: P.gestion, jornada: P.jornada, resolucion: P.resolucion,
         reinc: P.reinc, reincGen: P.reincGen, upgrades: P.upgrades, sva: P.sva
       };
     });

@@ -9,7 +9,7 @@
   function HtmlDeck() {
     this.slides = [];
     this.ShapeType = { roundRect: 'roundRect', rect: 'rect', line: 'line' };
-    this.ChartType = { bar: 'bar', doughnut: 'doughnut' };
+    this.ChartType = { bar: 'bar', doughnut: 'doughnut', line: 'line' };
     this.layout = 'LAYOUT_WIDE';
   }
   HtmlDeck.prototype.addSlide = function () {
@@ -19,7 +19,7 @@
       addText: function (text, o) { s.els.push({ t: 'text', text: text, o: o || {} }); return api; },
       addShape: function (type, o) { s.els.push({ t: 'shape', type: type, o: o || {} }); return api; },
       addTable: function (rows, o) { s.els.push({ t: 'table', rows: rows, o: o || {} }); return api; },
-      addChart: function (type, data, o) { s.els.push({ t: 'chart', type: type, data: data, o: o || {} }); return api; },
+      addChart: function (type, data, o) { if (Array.isArray(type) && o === undefined) { o = data; data = null; } s.els.push({ t: 'chart', type: type, data: data, o: o || {} }); return api; },
       addImage: function (o) { s.els.push({ t: 'image', o: o || {} }); return api; }
     };
     Object.defineProperty(api, 'background', { set: function (v) { s.background = v; }, get: function () { return s.background; } });
@@ -61,7 +61,7 @@
     if (Array.isArray(e.text)) {
       e.text.forEach(function (r) {
         var sp = document.createElement('span');
-        sp.textContent = r.text;
+        sp.textContent = r.text + (r.options && r.options.breakLine && !/\n$/.test(String(r.text)) ? '\n' : '');
         styleRun(sp, r.options || {});
         inner.appendChild(sp);
       });
@@ -143,7 +143,46 @@
     names.forEach(function (n, i) { var s = document.createElement('span'); s.innerHTML = '<i style="display:inline-block;width:9px;height:9px;margin-right:5px;background:' + colors[i % colors.length] + '"></i>'; s.appendChild(document.createTextNode(n)); lg.appendChild(s); });
     el.appendChild(lg);
   }
+  /* Gráfico combinado: barras (eje izquierdo) + líneas (eje derecho 0-100 %), como addChart([{bar},{line}]) de PptxGenJS */
+  function drawCombo(e) {
+    var o = e.o, el = document.createElement('div');
+    box(el, o);
+    var W = o.w * PX, H = o.h * PX, B = e.type[0], Ln = e.type[1], ds = B.data, ls = Ln.data;
+    var bc = (B.options.chartColors || ['440099']).map(function (c) { return col(c); }), lc = (Ln.options.chartColors || ['241338']).map(function (c) { return col(c); });
+    var labels = ds[0].labels, n = labels.length || 1, ns = ds.length;
+    var top = 30, bot = 24, left = 30, right = 42, pw = W - left - right, ph = H - top - bot;
+    var svg = svgEl('svg', { width: W, height: H, viewBox: '0 0 ' + W + ' ' + H });
+    svg.style.position = 'absolute'; svg.style.left = '0'; svg.style.top = '0';
+    var mx = Math.max.apply(null, ds.reduce(function (a, s) { return a.concat(s.values); }, [1])), step = mx <= 5 ? 1 : (mx <= 10 ? 2 : 5), maxB = Math.ceil(mx / step) * step;
+    for (var k = 0; k <= 4; k++) {
+      var y = top + ph - ph * k / 4;
+      svg.appendChild(svgEl('line', { x1: left, x2: left + pw, y1: y, y2: y, stroke: '#EEE8F7' }));
+      svgText(svg, left - 6, y, String(Math.round(maxB * k / 4 * 10) / 10), { anchor: 'end', size: 8 * PT, fill: '#7A6E8A' });
+      svgText(svg, left + pw + 6, y, (25 * k) + '%', { anchor: 'start', size: 8 * PT, fill: '#7A6E8A' });
+    }
+    var slot = pw / n, gap = (B.options.barGapWidthPct != null ? B.options.barGapWidthPct : 60) / 100, band = slot / (1 + gap), bw = band / ns;
+    labels.forEach(function (lab, i) {
+      ds.forEach(function (s, si) {
+        var v = s.values[i] || 0, h = ph * v / maxB;
+        svg.appendChild(svgEl('rect', { x: left + i * slot + (slot - band) / 2 + si * bw, y: top + ph - h, width: bw - 1, height: Math.max(h, 0), fill: bc[si % bc.length] }));
+      });
+      svgText(svg, left + i * slot + slot / 2, top + ph + 12, lab, { size: 9 * PT, fill: '#241338' });
+    });
+    ls.forEach(function (s, si) {
+      var pts = s.values.map(function (v, i) { return [left + i * slot + slot / 2, top + ph - ph * Math.max(0, Math.min(100, v || 0)) / 100]; });
+      svg.appendChild(svgEl('polyline', { points: pts.map(function (p) { return p.join(','); }).join(' '), fill: 'none', stroke: lc[si % lc.length], 'stroke-width': 2.2 }));
+      pts.forEach(function (p) { svg.appendChild(svgEl('circle', { cx: p[0], cy: p[1], r: 3.2, fill: lc[si % lc.length] })); });
+    });
+    el.appendChild(svg);
+    var names = ds.map(function (s) { return s.name; }).concat(ls.map(function (s) { return s.name; })), colors = bc.slice(0, ds.length).concat(lc.slice(0, ls.length));
+    var lg = document.createElement('div');
+    lg.style.cssText = 'position:absolute;left:0;right:0;top:0;height:24px;display:flex;gap:4px 14px;flex-wrap:wrap;justify-content:center;align-items:center;font-family:Montserrat,system-ui,sans-serif;color:#241338;font-size:' + (o.legendFontSize || 8) * PT + 'px;';
+    names.forEach(function (nm, i) { var sp = document.createElement('span'); sp.innerHTML = '<i style="display:inline-block;width:9px;height:9px;margin-right:5px;border-radius:' + (i >= ds.length ? '50%' : '0') + ';background:' + colors[i] + '"></i>'; sp.appendChild(document.createTextNode(nm)); lg.appendChild(sp); });
+    el.appendChild(lg);
+    return el;
+  }
   function drawChart(e) {
+    if (Array.isArray(e.type)) return drawCombo(e);
     var o = e.o, el = document.createElement('div');
     box(el, o);
     var W = o.w * PX, H = o.h * PX, colors = (o.chartColors || ['440099']).map(function (c) { return col(c); });
