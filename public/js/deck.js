@@ -111,19 +111,21 @@
     var mKeys = Array.isArray(R.metricasTiempo) && R.metricasTiempo.length ? R.metricasTiempo : E.DEFAULTS.metricasTiempo;
     var mList = E.METRICAS_TIEMPO.filter(function (m) { return mKeys.indexOf(m.key) >= 0; });
     if (!mList.length) mList = E.METRICAS_TIEMPO.slice(0, 2);
-    var mCols = ['Tickets resueltos'].concat(mList.map(function (m) { return E.metricaLabel(m, R.slaHoras); }));
-    function mVals(mp) { return [E.tickets(mp.n)].concat(mList.map(function (m) { return mp[m.prop]; })); }
-    function mColW(nGrupos, totalW) {
-      var w0 = nGrupos === 2 ? (mList.length <= 2 ? 2.55 : (mList.length <= 4 ? 2.1 : 1.75)) : (mList.length <= 2 ? 4.35 : (mList.length <= 4 ? 3.4 : 2.6));
+    function colsDe(list) { return ['Tickets resueltos'].concat((list || mList).map(function (m) { return E.metricaLabel(m, R.slaHoras); })); }
+    var mCols = colsDe(mList);
+    function mVals(mp, list) { return [E.tickets(mp.n)].concat((list || mList).map(function (m) { return mp[m.prop]; })); }
+    function mColW(nGrupos, totalW, list) {
+      var ml = list || mList;
+      var w0 = nGrupos === 2 ? (ml.length <= 2 ? 2.55 : (ml.length <= 4 ? 2.1 : 1.75)) : (ml.length <= 2 ? 4.35 : (ml.length <= 4 ? 3.4 : 2.6));
       var rem = totalW - w0;
-      var weights = [0.85].concat(mList.map(function (m) { return m.key === 'buckets' ? 1.55 : (m.key === 'minMax' ? 1.25 : 1.0); }));
+      var weights = [0.85].concat(ml.map(function (m) { return m.key === 'buckets' ? 1.55 : (m.key === 'minMax' ? 1.25 : 1.0); }));
       var sumW = weights.reduce(function (a, b) { return a + b; }, 0) * nGrupos;
       var out = [w0];
       for (var g = 0; g < nGrupos; g++) weights.forEach(function (w) { out.push(Math.round((rem * w / sumW) * 1000) / 1000); });
       return out;
     }
-    function mFontSize(nGrupos) {
-      var totalCols = 1 + nGrupos * (1 + mList.length);
+    function mFontSize(nGrupos, list) {
+      var ml = list || mList, totalCols = 1 + nGrupos * (1 + ml.length);
       if (totalCols <= 7) return null;
       if (totalCols <= 9) return 7;
       if (totalCols <= 13) return 6;
@@ -336,20 +338,34 @@ var CATS_MEDIANA = [
 
     /* ---------- 4-5. Tiempo de resolución por categoría ---------- */
     function laminaTiempo(a, b, titulo, pie, nota) {
-      var s = base(titulo);
-      var h = segHead(a, b, 'Categoría', mCols);
-      var rows = R.tiempoCategoria.map(function (r) { return { total: r.total, cells: [r.label].concat(mVals(r[a]), mVals(r[b])) }; });
-      var yEnd = tabla(s, { title: 'Tiempo de resolución por categoría', head1: h.head1, head2: h.head2, rows: rows, x: 0.4, y: 1.45, w: 8.75, colW: mColW(2, 8.75), fontSize: mFontSize(2), h: 4.65, maxRowH: 0.31 });
+      var s = base(titulo), esSguPais = a === 'sgu' && b === 'pais';
+      var tKeys = esSguPais ? mKeys.map(function (k) { return k === 'sla' ? 'p90' : k; }).filter(function (k, i, arr) { return arr.indexOf(k) === i; }) : mKeys;
+      var tList = esSguPais ? E.METRICAS_TIEMPO.filter(function (m) { return tKeys.indexOf(m.key) >= 0; }) : mList;
+      if (!tList.length) tList = mList;
+      var h = segHead(a, b, 'Categoría', colsDe(tList));
+      var rows = R.tiempoCategoria.map(function (r) { return { total: r.total, cells: [r.label].concat(mVals(r[a], tList), mVals(r[b], tList)) }; });
+      var yEnd = tabla(s, { title: 'Tiempo de resolución por categoría', head1: h.head1, head2: h.head2, rows: rows, x: 0.4, y: 1.45, w: 8.75, colW: mColW(2, 8.75, tList), fontSize: mFontSize(2, tList), h: 4.65, maxRowH: 0.31 });
       note(s, 0.4, yEnd + 0.12, 8.75, 0.5, nota);
+      if (esSguPais && pie.indexOf('P90:') < 0) pie = 'P90: el 90% se resolvió en este tiempo o menos · ' + pie;
       foot(s, pie);
       var cx = 9.4, cw = 3.5, ch = 1.18, gy = 0.13, y = 1.45;
-      var res = function (g) { return { value: pct(G[g].pctSol), unit: miles(G[g].solucionados) + ' de ' + miles(G[g].creados), sub: 'tickets creados que ya están resueltos' }; };
+      var p90Txt = function (g) { return 'P90: ' + (G[g].tiempo.n ? fmtD(G[g].tiempo.p90) : '-'); };
+      var sla24 = function (g) {
+        var t = G[g].tiempo, k = t && t.n ? t.buckets.b8 + t.buckets.b24 : 0;
+        return t && t.n ? 'SLA ≤ 24h: ' + pct(k / t.n) + ' (' + miles(k) + ' de ' + miles(t.n) + ' tickets)' : 'sin tickets resueltos';
+      };
+      var res = function (g) { return { value: pct(G[g].pctSol), unit: miles(G[g].solucionados) + ' de ' + miles(G[g].creados), sub: esSguPais ? p90Txt(g) : 'tickets creados que ya están resueltos' }; };
       var ra = res(a), rb = res(b);
       card(s, cx, y, cw, ch, { label: 'Resueltos', chip: a, value: ra.value, unit: ra.unit, sub: ra.sub, size: 20 });
       card(s, cx, y + (ch + gy), cw, ch, { label: 'Resueltos', chip: b, value: rb.value, unit: rb.unit, sub: rb.sub, size: 20 });
-      card(s, cx, y + 2 * (ch + gy), cw, ch, { label: 'Promedio', chip: a, value: fmtD(G[a].prom), size: 18, sub: G[a].modaTxt ? 'Moda: ' + G[a].modaTxt : 'sin moda' });
-      var cmp = R.comparativos[a + '_' + b];
-      card(s, cx, y + 3 * (ch + gy), cw, ch, { label: 'Promedio', chip: b, value: fmtD(G[b].prom), size: 18, sub: cmp && cmp.ganador ? 'Diferencia: ' + cmp.valor + ' a favor de ' + L[cmp.ganador] : '' });
+      if (esSguPais) {
+        card(s, cx, y + 2 * (ch + gy), cw, ch, { label: 'Mediana', chip: a, value: G[a].tiempo.n ? fmtD(G[a].tiempo.mediana) : '-', size: 18, sub: sla24(a) });
+        card(s, cx, y + 3 * (ch + gy), cw, ch, { label: 'Mediana', chip: b, value: G[b].tiempo.n ? fmtD(G[b].tiempo.mediana) : '-', size: 18, sub: sla24(b) });
+      } else {
+        card(s, cx, y + 2 * (ch + gy), cw, ch, { label: 'Promedio', chip: a, value: fmtD(G[a].prom), size: 18, sub: G[a].modaTxt ? 'Moda: ' + G[a].modaTxt : 'sin moda' });
+        var cmp = R.comparativos[a + '_' + b];
+        card(s, cx, y + 3 * (ch + gy), cw, ch, { label: 'Promedio', chip: b, value: fmtD(G[b].prom), size: 18, sub: cmp && cmp.ganador ? 'Diferencia: ' + cmp.valor + ' a favor de ' + L[cmp.ganador] : '' });
+      }
     }
     var slaL = Number(R.slaHoras) || 24;
     var leyP = [];
