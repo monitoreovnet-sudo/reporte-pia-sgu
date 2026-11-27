@@ -193,24 +193,23 @@
       // tiempo típico: mediana sin sesgo
       var ty = 2.55, th = 1.5;
       box(s, lx, ty, lw, th);
-      txt(s, 'TIEMPO TÍPICO · MEDIANA (P50) SIN SESGO', { x: lx + 0.14, y: ty + 0.08, w: 3.0, h: 0.24, fontSize: 7.5, bold: true, color: C.muted, valign: 'middle', fit: 'shrink' });
+txt(s, 'MEDIANA', { x: lx + 0.14, y: ty + 0.08, w: 3.0, h: 0.24, fontSize: 7.5, bold: true, color: C.muted, valign: 'middle', fit: 'shrink' });
       var pw = 1.6;
       s.addShape(pptx.ShapeType.roundRect, { x: lx + lw - 0.14 - pw, y: ty + 0.08, w: pw, h: 0.26, rectRadius: 0.13, fill: { color: C.purple }, line: { color: C.purple, width: 0 } });
       txt(s, [{ text: 'P50  ', options: { color: 'D9A8FF', fontSize: 7.5, bold: true } }, { text: T.n ? fmtD(T.mediana) : '-', options: { color: C.white, fontSize: 10, bold: true } }], { x: lx + lw - 0.14 - pw, y: ty + 0.08, w: pw, h: 0.26, align: 'center', valign: 'middle' });
-      var dif = T.n && TP.n ? Math.abs(T.mediana - TP.mediana) : null;
-      var favor = dif === null ? '' : (Math.round(T.mediana) === Math.round(TP.mediana) ? 'igual que el país' : (dif >= 3600 ? '−' + Math.round(dif / 3600) + ' h' : '−' + Math.max(1, Math.round(dif / 60)) + ' min') + ' a favor de ' + (T.mediana < TP.mediana ? 'SGU' : 'País'));
+      var slaSub = function (x) { return '≤24h: ' + pct(x && x.n ? (x.buckets.b8 + x.buckets.b24) / x.n : null) + '\n>72h: ' + pct(x && x.n ? x.buckets.bMas / x.n : null); };
       var cw4 = (lw - 0.28) / 4;
       [
-        ['Mediana SGU', T.n ? fmtD(T.mediana) : '-', '50% cierra antes', C.purple],
-        ['Mediana País', TP.n ? fmtD(TP.mediana) : '-', favor, C.purple],
+        ['Mediana SGU', T.n ? fmtD(T.mediana) : '-', slaSub(T), C.purple],
+        ['Mediana País', TP.n ? fmtD(TP.mediana) : '-', slaSub(TP), C.purple],
         ['En semana', pct(semS), 'País: ' + pct(semP), rojo ? C.red : C.purple],
         ['Cola P90 SGU', T.n ? fmtD(T.p90) : '-', '1 de cada 10 casos', C.purple]
       ].forEach(function (m, i) {
         var x = lx + 0.14 + i * cw4;
-        if (i) s.addShape(pptx.ShapeType.line, { x: x - 0.04, y: ty + 0.5, w: 0, h: th - 0.64, line: { color: C.cardLine, width: 1 } });
-        txt(s, m[0], { x: x, y: ty + 0.5, w: cw4 - 0.1, h: 0.22, fontSize: 8, color: C.muted, valign: 'middle', fit: 'shrink' });
-        txt(s, m[1], { x: x, y: ty + 0.74, w: cw4 - 0.1, h: 0.4, fontSize: 12, bold: true, color: m[3], valign: 'middle', fit: 'shrink' });
-        txt(s, m[2], { x: x, y: ty + 1.16, w: cw4 - 0.1, h: 0.24, fontSize: 7.5, color: C.muted, valign: 'top', fit: 'shrink' });
+        if (i) s.addShape(pptx.ShapeType.line, { x: x - 0.04, y: ty + 0.45, w: 0, h: th - 0.56, line: { color: C.cardLine, width: 1 } });
+        txt(s, m[0], { x: x, y: ty + 0.45, w: cw4 - 0.1, h: 0.2, fontSize: 8, color: C.muted, valign: 'middle', fit: 'shrink' });
+        txt(s, m[1], { x: x, y: ty + 0.67, w: cw4 - 0.1, h: 0.38, fontSize: 12, bold: true, color: m[3], valign: 'middle', fit: 'shrink' });
+        txt(s, m[2], { x: x, y: ty + 1.08, w: cw4 - 0.1, h: 0.34, fontSize: 7.5, color: C.muted, valign: 'top', fit: 'shrink' });
       });
       // fila 3: reincidencia FTTH y productividad del punto
       var u = G.sgu.upgrades, v = G.sgu.sva, up = G.pais.upgrades, vp = G.pais.sva;
