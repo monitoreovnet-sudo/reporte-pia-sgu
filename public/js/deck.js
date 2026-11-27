@@ -191,25 +191,29 @@
       mini(lx, 1.45, hw, 1.0, 'Índice de resolución SGU', pct(F.irSGU.pct), miles(F.irSGU.num) + ' de ' + miles(F.irSGU.den) + ' casos (' + miles(F.irSGU.fcr) + ' FCR + ' + miles(F.irSGU.resPIA + F.irSGU.resOtras) + ' GLPI)');
       mini(lx + hw + 0.17, 1.45, hw, 1.0, '1er contacto · FCR (PIA)', pct(F.fcr.pct), miles(F.fcr.n) + ' de ' + miles(F.fcr.den) + ' casos tipificados');
       // tiempo típico: mediana sin sesgo
-      var ty = 2.55, th = 1.5;
-      box(s, lx, ty, lw, th);
-txt(s, 'MEDIANA', { x: lx + 0.14, y: ty + 0.08, w: 3.0, h: 0.24, fontSize: 7.5, bold: true, color: C.muted, valign: 'middle', fit: 'shrink' });
-      var pw = 1.6;
-      s.addShape(pptx.ShapeType.roundRect, { x: lx + lw - 0.14 - pw, y: ty + 0.08, w: pw, h: 0.26, rectRadius: 0.13, fill: { color: C.purple }, line: { color: C.purple, width: 0 } });
-      txt(s, [{ text: 'P50  ', options: { color: 'D9A8FF', fontSize: 7.5, bold: true } }, { text: T.n ? fmtD(T.mediana) : '-', options: { color: C.white, fontSize: 10, bold: true } }], { x: lx + lw - 0.14 - pw, y: ty + 0.08, w: pw, h: 0.26, align: 'center', valign: 'middle' });
-      var slaSub = function (x) { return '≤24h: ' + pct(x && x.n ? (x.buckets.b8 + x.buckets.b24) / x.n : null) + '\n>72h: ' + pct(x && x.n ? x.buckets.bMas / x.n : null); };
-      var cw4 = (lw - 0.28) / 4;
+      var ty = 2.55, th = 1.5, mw = 1.38, g1 = 0.10, g2 = 0.14, w3 = lw - 2 * mw - g1 - g2;
+      var slaSub = function (x) { return '-24h: ' + pct(x && x.n ? (x.buckets.b8 + x.buckets.b24) / x.n : null) + '  +72h: ' + pct(x && x.n ? x.buckets.bMas / x.n : null); };
       [
-        ['Mediana SGU', T.n ? fmtD(T.mediana) : '-', slaSub(T), C.purple],
-        ['Mediana País', TP.n ? fmtD(TP.mediana) : '-', slaSub(TP), C.purple],
+        ['MEDIANA SGU', T.n ? fmtD(T.mediana) : '-', slaSub(T)],
+        ['MEDIANA PAÍS', TP.n ? fmtD(TP.mediana) : '-', slaSub(TP)]
+      ].forEach(function (m, i) {
+        var mx = lx + i * (mw + g1);
+        box(s, mx, ty, mw, th);
+        txt(s, m[0], { x: mx + 0.06, y: ty + 0.16, w: mw - 0.12, h: 0.24, fontSize: 8.5, bold: true, color: C.muted, align: 'center', valign: 'middle', fit: 'shrink' });
+        txt(s, m[1], { x: mx + 0.06, y: ty + 0.48, w: mw - 0.12, h: 0.48, fontSize: 16, bold: true, color: C.purple, align: 'center', valign: 'middle', fit: 'shrink' });
+        txt(s, m[2], { x: mx + 0.06, y: ty + 1.04, w: mw - 0.12, h: 0.28, fontSize: 7, color: C.muted, align: 'center', valign: 'middle', fit: 'shrink' });
+      });
+      var x3 = lx + 2 * mw + g1 + g2, cw2 = (w3 - 0.2) / 2;
+      box(s, x3, ty, w3, th);
+      s.addShape(pptx.ShapeType.line, { x: x3 + w3 / 2, y: ty + 0.18, w: 0, h: th - 0.36, line: { color: C.cardLine, width: 1 } });
+      [
         ['En semana', pct(semS), 'País: ' + pct(semP), rojo ? C.red : C.purple],
         ['Cola P90 SGU', T.n ? fmtD(T.p90) : '-', '1 de cada 10 casos', C.purple]
       ].forEach(function (m, i) {
-        var x = lx + 0.14 + i * cw4;
-        if (i) s.addShape(pptx.ShapeType.line, { x: x - 0.04, y: ty + 0.45, w: 0, h: th - 0.56, line: { color: C.cardLine, width: 1 } });
-        txt(s, m[0], { x: x, y: ty + 0.45, w: cw4 - 0.1, h: 0.2, fontSize: 8, color: C.muted, valign: 'middle', fit: 'shrink' });
-        txt(s, m[1], { x: x, y: ty + 0.67, w: cw4 - 0.1, h: 0.38, fontSize: 12, bold: true, color: m[3], valign: 'middle', fit: 'shrink' });
-        txt(s, m[2], { x: x, y: ty + 1.08, w: cw4 - 0.1, h: 0.34, fontSize: 7.5, color: C.muted, valign: 'top', fit: 'shrink' });
+        var cx = x3 + 0.08 + i * (cw2 + 0.08);
+        txt(s, m[0], { x: cx, y: ty + 0.22, w: cw2, h: 0.24, fontSize: 8, color: C.muted, valign: 'middle', fit: 'shrink' });
+        txt(s, m[1], { x: cx, y: ty + 0.52, w: cw2, h: 0.44, fontSize: 12, bold: true, color: m[3], valign: 'middle', fit: 'shrink' });
+        txt(s, m[2], { x: cx, y: ty + 1.04, w: cw2, h: 0.28, fontSize: 7.5, color: C.muted, valign: 'middle', fit: 'shrink' });
       });
       // fila 3: reincidencia FTTH y productividad del punto
       var u = G.sgu.upgrades, v = G.sgu.sva, up = G.pais.upgrades, vp = G.pais.sva;
