@@ -351,28 +351,37 @@
     /* ---------- 4-5. Tiempo de resolución por categoría ---------- */
     function laminaTiempo(a, b, titulo, pie, nota) {
       var s = base(titulo), esSguPais = a === 'sgu' && b === 'pais';
+      var ftth = esSguPais && R.ftthTiempo ? R.ftthTiempo : null;
       var tKeys = esSguPais ? mKeys.map(function (k) { return k === 'sla' ? 'p90' : k; }).filter(function (k, i, arr) { return arr.indexOf(k) === i; }) : mKeys;
       var tList = esSguPais ? E.METRICAS_TIEMPO.filter(function (m) { return tKeys.indexOf(m.key) >= 0; }) : mList;
       if (!tList.length) tList = mList;
       var h = segHead(a, b, 'Categoría', colsDe(tList));
-      var rows = R.tiempoCategoria.map(function (r) { return { total: r.total, cells: [r.label].concat(mVals(r[a], tList), mVals(r[b], tList)) }; });
+      var rows = (ftth ? ftth.filas : R.tiempoCategoria).map(function (r) { return { total: r.total, cells: [r.label].concat(mVals(r[a], tList), mVals(r[b], tList)) }; });
       var yEnd = tabla(s, { title: 'Tiempo de resolución por categoría', head1: h.head1, head2: h.head2, rows: rows, x: 0.4, y: 1.45, w: 8.75, colW: mColW(2, 8.75, tList), fontSize: mFontSize(2, tList), h: 4.65, maxRowH: 0.31 });
-      note(s, 0.4, yEnd + 0.12, 8.75, 0.5, nota);
+      var notaTxt = ftth ? (function () {
+        var br = ftth.filas.filter(function (r) { return !r.total && !r.otro && r[a].n && r[b].n; })
+          .map(function (r) { return { label: r.label, dif: r[a].mediana - r[b].mediana }; })
+          .filter(function (x) { return x.dif > 0; }).sort(function (x, y) { return y.dif - x.dif; }).slice(0, 2);
+        return br.length ? 'La brecha en mediana con el país se concentra en ' + br.map(function (x) { return E.catCorta(x.label) + ' (+' + E.fmtPalabras(x.dif) + ')'; }).join(' y ') + '.' : nota;
+      })() : nota;
+      note(s, 0.4, yEnd + 0.12, 8.75, 0.5, notaTxt);
       if (esSguPais && pie.indexOf('P90:') < 0) pie = 'P90: el 90% se resolvió en este tiempo o menos · ' + pie;
+      if (ftth) pie = 'Solo problemas FTTH (excluye cobranzas, clave WiFi, cambio de plan, mudanza y reubicación). ' + pie;
       foot(s, pie);
       var cx = 9.4, cw = 3.5, ch = 1.18, gy = 0.13, y = 1.45;
-      var p90Txt = function (g) { return 'P90: ' + (G[g].tiempo.n ? fmtD(G[g].tiempo.p90) : '-'); };
+      var gInfo = function (g) { return ftth ? ftth.grupos[g] : G[g]; };
+      var p90Txt = function (g) { var t = gInfo(g).tiempo; return 'P90: ' + (t.n ? fmtD(t.p90) : '-'); };
       var sla24 = function (g) {
-        var t = G[g].tiempo, k = t && t.n && t.buckets ? t.buckets.b8 + t.buckets.b24 : 0;
+        var t = gInfo(g).tiempo, k = t && t.n && t.buckets ? t.buckets.b8 + t.buckets.b24 : 0;
         return t && t.n ? 'SLA ≤ 24h: ' + pct(k / t.n) + ' (' + miles(k) + ' de ' + miles(t.n) + ' tickets)' : 'sin tickets resueltos';
       };
-      var res = function (g) { return { value: pct(G[g].pctSol), unit: miles(G[g].solucionados) + ' de ' + miles(G[g].creados), sub: esSguPais ? p90Txt(g) : 'tickets creados que ya están resueltos' }; };
+      var res = function (g) { var info = gInfo(g); return { value: pct(info.pctSol), unit: miles(info.solucionados) + ' de ' + miles(info.creados), sub: esSguPais ? p90Txt(g) : 'tickets creados que ya están resueltos' }; };
       var ra = res(a), rb = res(b);
       card(s, cx, y, cw, ch, { label: 'Resueltos', chip: a, value: ra.value, unit: ra.unit, sub: ra.sub, size: 20 });
       card(s, cx, y + (ch + gy), cw, ch, { label: 'Resueltos', chip: b, value: rb.value, unit: rb.unit, sub: rb.sub, size: 20 });
       if (esSguPais) {
-        card(s, cx, y + 2 * (ch + gy), cw, ch, { label: 'Mediana', chip: a, value: G[a].tiempo.n ? fmtD(G[a].tiempo.mediana) : '-', size: 18, sub: sla24(a) });
-        card(s, cx, y + 3 * (ch + gy), cw, ch, { label: 'Mediana', chip: b, value: G[b].tiempo.n ? fmtD(G[b].tiempo.mediana) : '-', size: 18, sub: sla24(b) });
+        card(s, cx, y + 2 * (ch + gy), cw, ch, { label: 'Mediana', chip: a, value: gInfo(a).tiempo.n ? fmtD(gInfo(a).tiempo.mediana) : '-', size: 18, sub: sla24(a) });
+        card(s, cx, y + 3 * (ch + gy), cw, ch, { label: 'Mediana', chip: b, value: gInfo(b).tiempo.n ? fmtD(gInfo(b).tiempo.mediana) : '-', size: 18, sub: sla24(b) });
       } else {
         card(s, cx, y + 2 * (ch + gy), cw, ch, { label: 'Promedio', chip: a, value: fmtD(G[a].prom), size: 18, sub: G[a].modaTxt ? 'Moda: ' + G[a].modaTxt : 'sin moda' });
         var cmp = R.comparativos[a + '_' + b];
@@ -761,25 +770,33 @@
       tiempoGrupo: { titulo: 'Tiempo de resolución por grupo técnico', col: 'Grupo técnico', cols: mCols, que: 'grupos técnicos' }
     };
     function laminaOtro(kind, g) {
-      var def = OTRO[kind], d = R.otros[kind][g], tiempo = kind !== 'productividad';
-      var celdas = function (v) { return tiempo ? mVals(v) : [E.tickets(v.creados), E.tickets(v.solucionados)]; };
+      var esFtthOtro = tipo === 'sgu' && kind === 'tiempoCategoria' && g === 'sgu' && R.ftthTiempo;
+      var def = OTRO[kind], d = esFtthOtro ? R.ftthTiempo.otroSgu : R.otros[kind][g], tiempo = kind !== 'productividad';
+      var tKeys = esFtthOtro ? mKeys.map(function (k) { return k === 'sla' ? 'p90' : k; }).filter(function (k, i, arr) { return arr.indexOf(k) === i; }) : mKeys;
+      var tList = esFtthOtro ? E.METRICAS_TIEMPO.filter(function (m) { return tKeys.indexOf(m.key) >= 0; }) : mList;
+      if (!tList.length) tList = mList;
+      var cols = tiempo ? colsDe(tList) : def.cols;
+      var celdas = function (v) { return tiempo ? mVals(v, tList) : [E.tickets(v.creados), E.tickets(v.solucionados)]; };
       var filas = d.filas.map(function (r) { return { cells: [r.label].concat(celdas(r.v)) }; });
       var POR = 17, paginas = Math.max(1, Math.ceil(filas.length / POR));
       var totalTk = tiempo ? d.total.v.n : d.total.v.creados;
-      var base0 = tiempo ? G[g].solucionados : G[g].creados;
+      var base0 = esFtthOtro ? R.ftthTiempo.grupos[g].solucionados : (tiempo ? G[g].solucionados : G[g].creados);
+      var nPrinc = esFtthOtro ? R.ftthTiempo.nPrincipales : (kind === 'tiempoGrupo' ? R.cfg.grupos.length : R.cfg.categorias.length);
       for (var p = 0; p < paginas; p++) {
         var s = base('ATC · Desglose de "Otro": ' + def.titulo.charAt(0).toLowerCase() + def.titulo.slice(1) + (paginas > 1 ? '  (' + (p + 1) + '/' + paginas + ')' : ''));
         var rows = filas.slice(p * POR, (p + 1) * POR);
-        if (!filas.length) rows = [{ cells: ['Sin tickets en "Otro"'].concat(def.cols.map(function () { return ''; })) }];
+        if (!filas.length) rows = [{ cells: ['Sin tickets en "Otro"'].concat(cols.map(function () { return ''; })) }];
         if (p === paginas - 1) rows.push({ total: true, cells: [d.total.label].concat(celdas(d.total.v)) });
-        tabla(s, { title: '"Otro" de ' + R.etiquetasLargas[g] + ' · ' + def.titulo.toLowerCase(), head1: [{ text: def.col, o: { rowspan: 2, align: 'left' } }, { text: R.etiquetasLargas[g], o: { colspan: def.cols.length } }], head2: def.cols.map(function (c) { return { text: c }; }),
-          rows: rows, x: 0.4, y: 1.45, w: 8.75, colW: tiempo ? mColW(1, 8.75) : [5.15, 1.6, 2.0], fontSize: tiempo ? mFontSize(1) : null, h: 5.3, maxRowH: 0.3 });
+        tabla(s, { title: '"Otro" de ' + R.etiquetasLargas[g] + ' · ' + def.titulo.toLowerCase(), head1: [{ text: def.col, o: { rowspan: 2, align: 'left' } }, { text: R.etiquetasLargas[g], o: { colspan: cols.length } }], head2: cols.map(function (c) { return { text: c }; }),
+          rows: rows, x: 0.4, y: 1.45, w: 8.75, colW: tiempo ? mColW(1, 8.75, tList) : [5.15, 1.6, 2.0], fontSize: tiempo ? mFontSize(1, tList) : null, h: 5.3, maxRowH: 0.3 });
         if (p > 0) continue;
         var cx = 9.4, cw = 3.5;
         card(s, cx, 1.45, cw, 1.3, { label: '"Otro"', chip: g, value: miles(totalTk), unit: tiempo ? 'tickets resueltos' : 'tickets creados', size: 22, sub: pct(base0 ? totalTk / base0 : null) + ' del total de ' + L[g] });
-        card(s, cx, 2.88, cw, 1.3, { label: 'Agrupa', chip: g, value: miles(d.filas.length), unit: d.filas.length === 1 ? def.que.replace(/s$/, '').replace('grupos técnicos', 'grupo técnico') : def.que, size: 22, sub: 'fuera de las ' + (kind === 'tiempoGrupo' ? R.cfg.grupos.length + ' de la tabla' : R.cfg.categorias.length + ' del reporte') });
+        card(s, cx, 2.88, cw, 1.3, { label: 'Agrupa', chip: g, value: miles(d.filas.length), unit: d.filas.length === 1 ? def.que.replace(/s$/, '').replace('grupos técnicos', 'grupo técnico') : def.que, size: 22, sub: 'fuera de las ' + nPrinc + (kind === 'tiempoGrupo' ? ' de la tabla' : ' del reporte') });
         if (d.filas[0]) card(s, cx, 4.31, cw, 1.3, { label: 'La más frecuente', chip: g, value: miles(tiempo ? d.filas[0].v.n : d.filas[0].v.creados), unit: (tiempo ? d.filas[0].v.n : d.filas[0].v.creados) === 1 ? 'ticket' : 'tickets', size: 22, sub: d.filas[0].label });
-        foot(s, tiempo ? (kind === 'tiempoGrupo' ? leyendaGrupo : leyenda) : 'Creados: todos los tickets del período · Solucionados: en estado Resuelto o Cerrado.');
+        var pieOtro = tiempo ? (kind === 'tiempoGrupo' ? leyendaGrupo : leyenda) : 'Creados: todos los tickets del período · Solucionados: en estado Resuelto o Cerrado.';
+        if (esFtthOtro && pieOtro.indexOf('P90:') < 0) pieOtro = 'P90: el 90% se resolvió en este tiempo o menos · ' + pieOtro;
+        foot(s, pieOtro);
       }
     }
 

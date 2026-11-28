@@ -797,6 +797,73 @@
     var tiempoCategoria = tablaTiempo('catK', cfg.categorias, catKeys);
     var colaCategoria = tablaCola('catK', cfg.categorias, catKeys);
     var tiempoGrupo = tablaTiempo('grpK', gruposU, grpKeys);
+    var FTTH_PRINC = [
+      'FTTH > Configuración de canales',
+      'FTTH > Configuración de equipo',
+      'FTTH > Intermitencias',
+      'FTTH > Sin conexión',
+      'FTTH > Visita técnica',
+      'FTTH > Reconexión del servicio'
+    ];
+    var ftthPrincK = FTTH_PRINC.map(norm);
+    var ftthExclK = [
+      'cobranzas masivas > ftth > suspension del servicio',
+      'cobranzas masivas > ftth > reembolso',
+      'cobranzas masivas > ftth > ajuste de facturacion',
+      'cambio de clave wifi',
+      'cambio de plan',
+      'mudanza',
+      'reubicacion de equipo'
+    ];
+    var esFtthExcluida = function (catK) {
+      var s = stripAccents(catK);
+      return ftthExclK.some(function (x) {
+        return s === x || s.slice(-(' > ' + x).length) === ' > ' + x;
+      });
+    };
+    var entraFtthTiempo = function (t) { return stripAccents(t.catK).indexOf('ftth') >= 0 && !esFtthExcluida(t.catK); };
+    var ftthTiempo = (function () {
+      var listas = {};
+      GRUPOS.forEach(function (g) { listas[g] = porGrupo[g].lista.filter(entraFtthTiempo); });
+      var filas = FTTH_PRINC.map(function (lab, i) {
+        var row = { label: lab };
+        GRUPOS.forEach(function (g) {
+          row[g] = modaPromedio(listas[g].filter(function (t) { return t.catK === ftthPrincK[i] && t.res && t.dur !== null; }).map(function (t) { return t.dur; }), slaH);
+          row[g].texto = celdaTiempo(row[g]); colsMP(row[g]);
+        });
+        return row;
+      });
+      var otro = { label: 'Otro', otro: true };
+      GRUPOS.forEach(function (g) {
+        otro[g] = modaPromedio(listas[g].filter(function (t) { return ftthPrincK.indexOf(t.catK) < 0 && t.res && t.dur !== null; }).map(function (t) { return t.dur; }), slaH);
+        otro[g].texto = celdaTiempo(otro[g]); colsMP(otro[g]);
+      });
+      filas.push(otro);
+      var tot = { label: 'Total', total: true }, grupos = {};
+      GRUPOS.forEach(function (g) {
+        var Lf = listas[g], sol = Lf.filter(function (t) { return t.res; }).length;
+        var mp = modaPromedio(Lf.filter(function (t) { return t.res && t.dur !== null; }).map(function (t) { return t.dur; }), slaH);
+        mp.texto = celdaTiempo(mp, true); colsMP(mp);
+        tot[g] = Object.assign({}, mp);
+        grupos[g] = { creados: Lf.length, solucionados: sol, pctSol: Lf.length ? sol / Lf.length : null, tiempo: mp };
+      });
+      filas.push(tot);
+      var otroSguL = listas.sgu.filter(function (t) { return ftthPrincK.indexOf(t.catK) < 0; });
+      var orden = [], por = {};
+      otroSguL.forEach(function (t) {
+        var k = t.catK;
+        if (!por[k]) { por[k] = { label: t.cat || 'Sin categoría', lista: [] }; orden.push(k); }
+        por[k].lista.push(t);
+      });
+      var otroFilas = orden.map(function (k) {
+        var x = por[k], v = modaPromedio(x.lista.filter(function (t) { return t.res && t.dur !== null; }).map(function (t) { return t.dur; }), slaH);
+        v.texto = celdaTiempo(v); colsMP(v);
+        return { label: x.label, v: v, orden: v.n };
+      }).filter(function (r) { return r.v.n > 0; }).sort(function (a, b) { return b.orden - a.orden || a.label.localeCompare(b.label, 'es'); });
+      var otroTotV = modaPromedio(otroSguL.filter(function (t) { return t.res && t.dur !== null; }).map(function (t) { return t.dur; }), slaH);
+      otroTotV.texto = celdaTiempo(otroTotV, true); colsMP(otroTotV);
+      return { filas: filas, grupos: grupos, otroSgu: { filas: otroFilas, total: { label: 'Total "Otro"', total: true, v: otroTotV } }, nPrincipales: FTTH_PRINC.length };
+    })();
 
     /* --- tabla 5.3 --- */
     function cr(L) { return { creados: L.length, solucionados: L.filter(function (t) { return t.res; }).length }; }
@@ -1262,7 +1329,7 @@ resumenGrupos[g] = {
       ventana: { desde: fmtDate(wIni), hasta: fmtDate(wFin - 1), corta: partsFromSerial(wIni).d + '–' + fmtDM(wFin - 1) },
       etiquetas: ETIQUETAS, etiquetasLargas: ETIQUETAS_LARGAS,
       fijos: fijos, g: resumenGrupos, comparativos: comparativos,
-      tiempoCategoria: tiempoCategoria, colaCategoria: colaCategoria, tiempoGrupo: tiempoGrupo, productividad: productividad, otros: otros, clientesReinc: clientesReinc,
+      tiempoCategoria: tiempoCategoria, ftthTiempo: ftthTiempo, tiempoGrupo: tiempoGrupo, productividad: productividad, otros: otros, clientesReinc: clientesReinc,
       reincidencia: porGrupo.sgu.reinc,
       reincidenciaGeneral: porGrupo.sgu.reincGen,
       revision: { pendientes: colaRevision, revisados: revisadosLista, total: colaRevision.length + revisadosLista.length },
