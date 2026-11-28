@@ -300,26 +300,36 @@ var CATS_MEDIANA = [
       txt(s, 'Resueltos', { x: lx + 0.27, y: by + bh - 0.205, w: 1.0, h: 0.16, fontSize: 7, color: C.muted, valign: 'middle' });
       s.addShape(pptx.ShapeType.rect, { x: lx + 1.35, y: by + bh - 0.17, w: 0.09, h: 0.09, fill: { color: C.lilac }, line: { color: C.lilac, width: 0 } });
       txt(s, 'Pendientes', { x: lx + 1.48, y: by + bh - 0.205, w: 1.2, h: 0.16, fontSize: 7, color: C.muted, valign: 'middle' });
-      // inferior derecha: casos borde
-      var ex = rx, ew = rw;
-      box(s, ex, by, ew, bh, C.note);
-      txt(s, 'CASOS BORDE · FUERA DE MEDIANA', { x: ex + 0.14, y: by + 0.07, w: ew - 1.2, h: 0.24, fontSize: 8.5, bold: true, color: C.purple, valign: 'middle', fit: 'shrink' });
-      s.addShape(pptx.ShapeType.roundRect, { x: ex + ew - 0.98, y: by + 0.09, w: 0.84, h: 0.2, rectRadius: 0.1, fill: { color: C.hot }, line: { color: C.hot, width: 0 } });
-      txt(s, 'ATÍPICOS', { x: ex + ew - 0.98, y: by + 0.09, w: 0.84, h: 0.2, fontSize: 7, bold: true, color: C.white, align: 'center', valign: 'middle' });
-      var diasCero = RS.filas.filter(function (f) { return f.d.ab > 0 && f.d.res === 0; }).length;
+      // inferior derecha: 3 indicadores (Retraso >72 h, Caso Máximo, Reincidencia máx.)
       var cli = (R.clientesReinc && R.clientesReinc[0]) ? R.clientesReinc[0].filas : [], maxN = cli.reduce(function (a, c) { return Math.max(a, c.tickets.length); }, 0);
       var topCli = cli.filter(function (c) { return c.tickets.length === maxN; });
       var dmy = function (t) { var p = String(t.fecha).split('/'); return Date.UTC(+p[2], +p[1] - 1, +p[0]); };
       var span = topCli.length && maxN > 1 ? Math.round((Math.max.apply(null, topCli[0].tickets.map(dmy)) - Math.min.apply(null, topCli[0].tickets.map(dmy))) / 86400000) : 0;
-      var H = function (a, hl, b) { return [{ text: '• ' + a + ' ', options: { bold: true, color: C.ink, fontSize: 8 } }, { text: hl, options: { bold: true, color: C.hot, fontSize: 8 } }, { text: b, options: { fontSize: 8, color: C.ink, breakLine: true, paraSpaceBefore: 3 } }]; };
       var tk = function (k) { return miles(k) + (k === 1 ? ' ticket' : ' tickets'); };
-      var lineas = [].concat(
-        H('Cola >72 h:', tk(BD.mayor72), ' (' + pct(BD.n ? BD.mayor72 / BD.n : null) + ' de ' + miles(BD.n) + ' resueltos · P90: ' + (T.n ? fmtD(T.p90) : '-') + ').'),
-        BD.max ? H('Caso máximo:', fmtD(BD.max.dur), ' en ' + E.catCorta(BD.max.cat) + ' (ticket ' + BD.max.id + ').') : H('Caso máximo:', '-', ''),
-        H('Sin cerrar:', tk(BD.pendientes), ' (' + pct(G.sgu.creados ? BD.pendientes / G.sgu.creados : null) + ' de lo creado) y ' + diasCero + (diasCero === 1 ? ' día' : ' días') + ' con 0% mismo día.'),
-        maxN > 1 ? H('Reincidencia máx.:', topCli.length + (topCli.length === 1 ? ' cliente' : ' clientes'), ' con ' + maxN + ' tickets' + (span ? ' en ' + span + (span === 1 ? ' día' : ' días') : '') + '.') : H('Reincidencia máx.:', 'sin reincidentes', ' en el período.')
-      );
-      txt(s, lineas, { x: ex + 0.14, y: by + 0.34, w: ew - 0.28, h: bh - 0.42, valign: 'top', fit: 'shrink' });
+      var gxB = 0.15, cwB = (rw - 2 * gxB) / 3;
+      [
+        {
+          label: 'Retraso >72 h',
+          val: [{ text: tk(BD.mayor72), options: { bold: true, color: C.purple, fontSize: 15 } }, { text: '  ' + pct(BD.n ? BD.mayor72 / BD.n : null) + ' de ' + miles(BD.n) + ' resueltos', options: { color: C.muted, fontSize: 7.5 } }],
+          sub: 'P90: ' + (T.n ? fmtD(T.p90) : '-')
+        },
+        {
+          label: 'Caso Máximo',
+          val: [{ text: BD.max ? fmtD(BD.max.dur) : '-', options: { bold: true, color: C.purple, fontSize: 18 } }],
+          sub: BD.max ? E.catCorta(BD.max.cat) + ' - ' + BD.max.id : ''
+        },
+        {
+          label: 'Reincidencia máx.',
+          val: [{ text: maxN > 1 ? topCli.length + (topCli.length === 1 ? ' cliente' : ' clientes') : 'Sin reincidentes', options: { bold: true, color: C.purple, fontSize: maxN > 1 ? 18 : 14 } }],
+          sub: maxN > 1 ? 'con ' + maxN + ' tickets' + (span ? ' en ' + span + (span === 1 ? ' día' : ' días') : '') : 'en el período'
+        }
+      ].forEach(function (c, i) {
+        var cxB = rx + i * (cwB + gxB);
+        box(s, cxB, by, cwB, bh);
+        txt(s, c.label, { x: cxB + 0.14, y: by + 0.12, w: cwB - 0.28, h: 0.24, fontSize: 9.5, bold: true, valign: 'middle', fit: 'shrink' });
+        txt(s, c.val, { x: cxB + 0.14, y: by + 0.42, w: cwB - 0.28, h: 0.62, valign: 'middle', fit: 'shrink' });
+        if (c.sub) txt(s, c.sub, { x: cxB + 0.14, y: by + bh - 0.4, w: cwB - 0.28, h: 0.3, fontSize: 8, color: C.muted, valign: 'middle', fit: 'shrink' });
+      });
       foot(s, 'Resp.: ' + (R.responsable || '-') + ' · Corte ' + R.corteTxt + ' · Fuentes: ' + R.fuentesTxt + ' · Mediana y P90 sobre tickets resueltos o cerrados; en semana en rojo si es menor a ' + Math.round(UMBRAL_SEMANAL * 100) + '%.');
     }
 
