@@ -179,7 +179,6 @@
       var T = G.sgu.tiempo, TP = G.pais.tiempo, BD = G.sgu.bordes, RS = G.sgu.resolucion, RP = G.pais.resolucion;
       var semS = G.sgu.semana.pct, semP = G.pais.semana.pct;
       var rojo = semS !== null && semS < UMBRAL_SEMANAL;
-      var cap = function (t) { return { text: t, options: { bold: true, color: C.muted, fontSize: 8, breakLine: true } }; };
       // mini tarjeta: etiqueta, valor grande y línea de apoyo
       function mini(x, y, w, h, label, value, sub, o) {
         o = o || {};
@@ -194,7 +193,10 @@
       mini(lx + hw + 0.17, 1.45, hw, 1.0, '1er contacto · FCR (PIA)', pct(F.fcr.pct), miles(F.fcr.n) + ' de ' + miles(F.fcr.den) + ' casos tipificados');
       // fila 2: mediana SGU/País y cola SGU/País
       var ty = 2.55, th = 1.5, gSub = 0.09, qw = (hw - gSub) / 2;
-      var slaSub = function (x) { return '-24h: ' + pct(x && x.n ? (x.buckets.b8 + x.buckets.b24) / x.n : null) + '  +72h: ' + pct(x && x.n ? x.buckets.bMas / x.n : null); };
+      var slaSub = function (x) {
+        var bk = x && x.buckets ? x.buckets : { b8: 0, b24: 0, bMas: 0 };
+        return '-24h: ' + pct(x && x.n ? (bk.b8 + bk.b24) / x.n : null) + '  +72h: ' + pct(x && x.n ? bk.bMas / x.n : null);
+      };
       [
         ['MEDIANA SGU', T.n ? fmtD(T.mediana) : '-', slaSub(T)],
         ['MEDIANA PAÍS', TP.n ? fmtD(TP.mediana) : '-', slaSub(TP)]
@@ -210,11 +212,12 @@
         ['COLA PAÍS', G.pais.cola]
       ].forEach(function (m, i) {
         var cx = lx + hw + 0.17 + i * (qw + gSub), cl = m[1] || { n: 0, pct: null, mediana: null, buckets: { bMas: 0 } };
+        var bMas = cl.buckets ? cl.buckets.bMas : 0;
         box(s, cx, ty, qw, th);
         txt(s, m[0], { x: cx + 0.03, y: ty + 0.14, w: qw - 0.06, h: 0.22, fontSize: 7.5, bold: true, color: C.muted, align: 'center', valign: 'middle', fit: 'shrink' });
         txt(s, [{ text: pct(cl.pct), options: { bold: true, color: C.purple, fontSize: 15 } }, { text: ' sin res.', options: { color: C.muted, fontSize: 7 } }], { x: cx + 0.03, y: ty + 0.44, w: qw - 0.06, h: 0.34, align: 'center', valign: 'middle', fit: 'shrink' });
         txt(s, [{ text: 'Esp. ', options: { color: C.muted, fontSize: 7.5 } }, { text: cl.n ? fmtD(cl.mediana) : '-', options: { bold: true, color: C.ink, fontSize: 9.5 } }], { x: cx + 0.03, y: ty + 0.82, w: qw - 0.06, h: 0.26, align: 'center', valign: 'middle', fit: 'shrink' });
-        txt(s, '+72h: ' + pct(cl.n ? cl.buckets.bMas / cl.n : null), { x: cx + 0.03, y: ty + 1.12, w: qw - 0.06, h: 0.24, fontSize: 7, color: C.muted, align: 'center', valign: 'middle', fit: 'shrink' });
+        txt(s, '+72h: ' + pct(cl.n ? bMas / cl.n : null), { x: cx + 0.03, y: ty + 1.12, w: qw - 0.06, h: 0.24, fontSize: 7, color: C.muted, align: 'center', valign: 'middle', fit: 'shrink' });
       });
       // fila 3: reincidencia FTTH y productividad del punto
       var u = G.sgu.upgrades, v = G.sgu.sva, up = G.pais.upgrades, vp = G.pais.sva;
@@ -251,4 +254,582 @@
       var hd = [{ text: 'Semana ' + R.ventana.corta, o: { align: 'left', fill: { color: C.purple }, color: C.white } }]
         .concat(labs.map(function (l) { return { text: l, o: { fill: { color: C.purple }, color: C.white } }; }), [{ text: 'Total', o: { fill: { color: C.purple }, color: C.white } }]);
       tabla(s, { head1: hd, rows: rows, x: rx, y: 4.59, w: rw, colW: [c0].concat(new Array(nd).fill(cd), [ctot]), rowH: 0.23, fontSize: 8, colsTotal: [nd + 1] });
-      // inferior izquierda: resueltos p
+      // inferior izquierda: resueltos por categoría (barras apiladas)
+      var by = 5.3, bh = 1.55, bw1 = lw;
+      box(s, lx, by, bw1, bh);
+      txt(s, 'RESUELTOS POR CATEGORÍA · SGU (' + miles(G.sgu.solucionados) + ')', { x: lx + 0.14, y: by + 0.07, w: bw1 - 0.28, h: 0.24, fontSize: 8.5, bold: true, valign: 'middle', fit: 'shrink' });
+      var CATS_MEDIANA = [
+        'FTTH > Configuración de canales',
+        'FTTH > Configuración de equipo',
+        'FTTH > Intermitencias',
+        'FTTH > Sin conexión',
+        'FTTH > Visita técnica',
+        'FTTH > Reconexión del servicio'
+      ];
+      var catMap = {};
+      R.productividad.forEach(function (r) {
+        if (!r.estatus && !r.total && !r.otro) catMap[E.norm(r.label)] = r.sgu;
+      });
+      ((R.otros && R.otros.productividad && R.otros.productividad.sgu && R.otros.productividad.sgu.filas) || []).forEach(function (r) {
+        var k = E.norm(r.label);
+        if (!catMap[k]) catMap[k] = r.v;
+      });
+      var filasC = CATS_MEDIANA.map(function (c) {
+        var d = catMap[E.norm(c)] || { creados: 0, solucionados: 0 };
+        return { lab: E.catCorta(c), c: d.creados || 0, s: d.solucionados || 0 };
+      }).sort(function (a, b) { return b.c - a.c || b.s - a.s; });
+      var cmax = Math.max.apply(null, filasC.map(function (f) { return f.c; }).concat([1])), labW = 1.42, barMax = 2.2;
+      filasC.forEach(function (f, i) {
+        var yy = by + 0.33 + i * 0.168, p = f.c ? f.s / f.c : null, baja = p !== null && p < UMBRAL_SEMANAL;
+        var pend = Math.max(0, f.c - f.s), bx = lx + 0.14 + labW, barY = yy + 0.025, barH = 0.12;
+        var wTot = f.c ? Math.max(0.04, barMax * f.c / cmax) : 0;
+        txt(s, f.lab, { x: lx + 0.14, y: yy, w: labW, h: 0.17, fontSize: 6.8, valign: 'middle', fit: 'shrink' });
+        if (wTot > 0) {
+          if (f.s > 0 && pend > 0) {
+            var wRes = Math.max(0.02, Math.min(wTot - 0.02, wTot * f.s / f.c)), wPend = wTot - wRes;
+            s.addShape(pptx.ShapeType.rect, { x: bx, y: barY, w: wRes, h: barH, fill: { color: C.purple }, line: { color: C.purple, width: 0 } });
+            s.addShape(pptx.ShapeType.rect, { x: bx + wRes, y: barY, w: wPend, h: barH, fill: { color: C.lilac }, line: { color: C.lilac, width: 0 } });
+          } else {
+            var colBar = f.s > 0 ? C.purple : C.lilac;
+            s.addShape(pptx.ShapeType.rect, { x: bx, y: barY, w: wTot, h: barH, fill: { color: colBar }, line: { color: colBar, width: 0 } });
+          }
+        }
+        txt(s, miles(f.s) + '/' + miles(f.c) + ' (' + pct(p) + ')', { x: bx + wTot + 0.06, y: yy, w: bw1 - 0.14 - labW - wTot - 0.1, h: 0.17, fontSize: 7, bold: true, color: baja ? C.hot : C.ink, valign: 'middle', fit: 'shrink' });
+      });
+      s.addShape(pptx.ShapeType.rect, { x: lx + 0.14, y: by + bh - 0.17, w: 0.09, h: 0.09, fill: { color: C.purple }, line: { color: C.purple, width: 0 } });
+      txt(s, 'Resueltos', { x: lx + 0.27, y: by + bh - 0.205, w: 1.0, h: 0.16, fontSize: 7, color: C.muted, valign: 'middle' });
+      s.addShape(pptx.ShapeType.rect, { x: lx + 1.35, y: by + bh - 0.17, w: 0.09, h: 0.09, fill: { color: C.lilac }, line: { color: C.lilac, width: 0 } });
+      txt(s, 'Pendientes', { x: lx + 1.48, y: by + bh - 0.205, w: 1.2, h: 0.16, fontSize: 7, color: C.muted, valign: 'middle' });
+      // inferior derecha: 3 indicadores (mitad de altura: 0.78 in)
+      var cli = (R.clientesReinc && R.clientesReinc[0]) ? R.clientesReinc[0].filas : [], maxN = cli.reduce(function (a, c) { return Math.max(a, c.tickets.length); }, 0);
+      var topCli = cli.filter(function (c) { return c.tickets.length === maxN; });
+      var dmy = function (t) { var p = String(t.fecha).split('/'); return Date.UTC(+p[2], +p[1] - 1, +p[0]); };
+      var span = topCli.length && maxN > 1 ? Math.round((Math.max.apply(null, topCli[0].tickets.map(dmy)) - Math.min.apply(null, topCli[0].tickets.map(dmy))) / 86400000) : 0;
+      var tk = function (k) { return miles(k) + (k === 1 ? ' ticket' : ' tickets'); };
+      var byR = 6.07, bhR = 0.78, gxB = 0.15, cwB = (rw - 2 * gxB) / 3;
+      [
+        {
+          label: 'Retraso >72 h',
+          val: [{ text: tk(BD.mayor72), options: { bold: true, color: C.purple, fontSize: 12.5 } }, { text: '  ' + pct(BD.n ? BD.mayor72 / BD.n : null) + ' de ' + miles(BD.n) + ' resueltos', options: { color: C.muted, fontSize: 7 } }],
+          sub: 'P90: ' + (T.n ? fmtD(T.p90) : '-')
+        },
+        {
+          label: 'Caso Máximo',
+          val: [{ text: BD.max ? fmtD(BD.max.dur) : '-', options: { bold: true, color: C.purple, fontSize: 14 } }],
+          sub: BD.max ? E.catCorta(BD.max.cat) + ' - ' + BD.max.id : ''
+        },
+        {
+          label: 'Reincidencia máx.',
+          val: [{ text: maxN > 1 ? topCli.length + (topCli.length === 1 ? ' cliente' : ' clientes') : 'Sin reincidentes', options: { bold: true, color: C.purple, fontSize: maxN > 1 ? 14 : 11 } }],
+          sub: maxN > 1 ? 'con ' + maxN + ' tickets' + (span ? ' en ' + span + (span === 1 ? ' día' : ' días') : '') : 'en el período'
+        }
+      ].forEach(function (c, i) {
+        var cxB = rx + i * (cwB + gxB);
+        box(s, cxB, byR, cwB, bhR);
+        txt(s, c.label, { x: cxB + 0.12, y: byR + 0.06, w: cwB - 0.24, h: 0.18, fontSize: 8, bold: true, valign: 'middle', fit: 'shrink' });
+        txt(s, c.val, { x: cxB + 0.12, y: byR + 0.25, w: cwB - 0.24, h: 0.3, valign: 'middle', fit: 'shrink' });
+        if (c.sub) txt(s, c.sub, { x: cxB + 0.12, y: byR + 0.56, w: cwB - 0.24, h: 0.18, fontSize: 7.5, color: C.muted, valign: 'middle', fit: 'shrink' });
+      });
+      foot(s, 'Resp.: ' + (R.responsable || '-') + ' · Corte ' + R.corteTxt + ' · Fuentes: ' + R.fuentesTxt + ' · Mediana y P90 sobre tickets resueltos o cerrados; en semana en rojo si es menor a ' + Math.round(UMBRAL_SEMANAL * 100) + '%.');
+    }
+
+    /* ---------- notas automáticas ---------- */
+    function notaResolucion(a, b) {
+      var A = G[a], B = G[b], pa = A.pctSol, pb = B.pctSol, dif = Math.abs(A.prom - B.prom);
+      if (A.prom === null || B.prom === null) return '';
+      var mejorProp = pa >= pb, masRapido = A.prom <= B.prom;
+      var p1 = L[a] + ' resuelve una ' + (mejorProp ? 'mayor' : 'menor') + ' proporción de lo que crea (' + pct(pa) + ' vs. ' + pct(pb) + ')';
+      var p2 = 'tarda ' + E.fmtPalabras(dif) + (masRapido ? ' menos' : ' más') + ' en promedio';
+      return p1 + (mejorProp === masRapido ? ' y ' : ', pero ') + p2 + '.';
+    }
+    function notaBrecha(a, b) {
+      var br = R.brechas(a, b).filter(function (x) { return x.dif > 0; }).slice(0, 2);
+      if (!br.length) return notaResolucion(a, b);
+      return 'La brecha con ' + (b === 'pais' ? 'el país' : L[b]) + ' se concentra en ' + br.map(function (x) { return E.catCorta(x.label) + ' (+' + E.fmtPalabras(x.dif) + ')'; }).join(' y ') + '.';
+    }
+
+    /* ---------- 4-5. Tiempo de resolución por categoría ---------- */
+    function laminaTiempo(a, b, titulo, pie, nota) {
+      var s = base(titulo), esSguPais = a === 'sgu' && b === 'pais';
+      var tKeys = esSguPais ? mKeys.map(function (k) { return k === 'sla' ? 'p90' : k; }).filter(function (k, i, arr) { return arr.indexOf(k) === i; }) : mKeys;
+      var tList = esSguPais ? E.METRICAS_TIEMPO.filter(function (m) { return tKeys.indexOf(m.key) >= 0; }) : mList;
+      if (!tList.length) tList = mList;
+      var h = segHead(a, b, 'Categoría', colsDe(tList));
+      var rows = R.tiempoCategoria.map(function (r) { return { total: r.total, cells: [r.label].concat(mVals(r[a], tList), mVals(r[b], tList)) }; });
+      var yEnd = tabla(s, { title: 'Tiempo de resolución por categoría', head1: h.head1, head2: h.head2, rows: rows, x: 0.4, y: 1.45, w: 8.75, colW: mColW(2, 8.75, tList), fontSize: mFontSize(2, tList), h: 4.65, maxRowH: 0.31 });
+      note(s, 0.4, yEnd + 0.12, 8.75, 0.5, nota);
+      if (esSguPais && pie.indexOf('P90:') < 0) pie = 'P90: el 90% se resolvió en este tiempo o menos · ' + pie;
+      foot(s, pie);
+      var cx = 9.4, cw = 3.5, ch = 1.18, gy = 0.13, y = 1.45;
+      var p90Txt = function (g) { return 'P90: ' + (G[g].tiempo.n ? fmtD(G[g].tiempo.p90) : '-'); };
+      var sla24 = function (g) {
+        var t = G[g].tiempo, k = t && t.n && t.buckets ? t.buckets.b8 + t.buckets.b24 : 0;
+        return t && t.n ? 'SLA ≤ 24h: ' + pct(k / t.n) + ' (' + miles(k) + ' de ' + miles(t.n) + ' tickets)' : 'sin tickets resueltos';
+      };
+      var res = function (g) { return { value: pct(G[g].pctSol), unit: miles(G[g].solucionados) + ' de ' + miles(G[g].creados), sub: esSguPais ? p90Txt(g) : 'tickets creados que ya están resueltos' }; };
+      var ra = res(a), rb = res(b);
+      card(s, cx, y, cw, ch, { label: 'Resueltos', chip: a, value: ra.value, unit: ra.unit, sub: ra.sub, size: 20 });
+      card(s, cx, y + (ch + gy), cw, ch, { label: 'Resueltos', chip: b, value: rb.value, unit: rb.unit, sub: rb.sub, size: 20 });
+      if (esSguPais) {
+        card(s, cx, y + 2 * (ch + gy), cw, ch, { label: 'Mediana', chip: a, value: G[a].tiempo.n ? fmtD(G[a].tiempo.mediana) : '-', size: 18, sub: sla24(a) });
+        card(s, cx, y + 3 * (ch + gy), cw, ch, { label: 'Mediana', chip: b, value: G[b].tiempo.n ? fmtD(G[b].tiempo.mediana) : '-', size: 18, sub: sla24(b) });
+      } else {
+        card(s, cx, y + 2 * (ch + gy), cw, ch, { label: 'Promedio', chip: a, value: fmtD(G[a].prom), size: 18, sub: G[a].modaTxt ? 'Moda: ' + G[a].modaTxt : 'sin moda' });
+        var cmp = R.comparativos[a + '_' + b];
+        card(s, cx, y + 3 * (ch + gy), cw, ch, { label: 'Promedio', chip: b, value: fmtD(G[b].prom), size: 18, sub: cmp && cmp.ganador ? 'Diferencia: ' + cmp.valor + ' a favor de ' + L[cmp.ganador] : '' });
+      }
+    }
+    function laminaCola(a, b) {
+      var s = base('ATC · Tickets en cola: ' + L[a] + ' vs. resto del país');
+      var h = segHead(a, b, 'Categoría', ['En cola', 'Mediana', 'SLA ≤ 24h', 'SLA > 72h']);
+      var cVals = function (mp) {
+        if (!mp || !mp.n) return ['-', '-', '-', '-'];
+        var bk = mp.buckets || { b8: 0, b24: 0, bMas: 0 };
+        return [
+          E.tickets(mp.n),
+          fmtD(mp.mediana),
+          pct((bk.b8 + bk.b24) / mp.n),
+          pct(bk.bMas / mp.n)
+        ];
+      };
+      var rows = (R.colaCategoria || []).map(function (r) { return { total: r.total, cells: [r.label].concat(cVals(r[a]), cVals(r[b])) }; });
+      if (!rows.length) rows = [{ cells: ['Sin datos de cola (actualice engine.js)', '-', '-', '-', '-', '-', '-', '-', '-'] }];
+      var w0 = 2.05, rem = 8.75 - w0, wts = [1.05, 1.0, 0.75, 0.75], sumW = 7.1, cwC = [w0];
+      for (var g = 0; g < 2; g++) wts.forEach(function (w) { cwC.push(Math.round((rem * w / sumW) * 1000) / 1000); });
+      var yEnd = tabla(s, { title: 'Tiempo en cola (sin resolver) por categoría', head1: h.head1, head2: h.head2, rows: rows, x: 0.4, y: 1.45, w: 8.75, colW: cwC, fontSize: 7, h: 4.65, maxRowH: 0.31 });
+      var vacio = { n: 0, pct: null, mediana: null, buckets: { b8: 0, b24: 0, bMas: 0 } };
+      var CA = G[a].cola || vacio, CB = G[b].cola || vacio;
+      var notaCola = !CA.n && !CB.n
+        ? 'No hay tickets sin resolver en el período.'
+        : L[a] + ' mantiene en cola el ' + pct(CA.pct) + ' de lo creado (' + miles(CA.n) + ' de ' + miles(G[a].creados) + (CA.n ? ', espera mediana ' + fmtD(CA.mediana) : '') + '); ' +
+          (b === 'pais' ? 'el país' : L[b]) + ', el ' + pct(CB.pct) + ' (' + miles(CB.n) + ' de ' + miles(G[b].creados) + (CB.n ? ', espera mediana ' + fmtD(CB.mediana) : '') + ').';
+      note(s, 0.4, yEnd + 0.12, 8.75, 0.5, notaCola);
+      foot(s, 'En cola: tickets con estado distinto de Resuelto o Cerrado. Espera: desde su apertura hasta la fecha de corte (' + R.corteTxt + '). Mediana: 50% espera menos. SLA ≤ 24h y SLA > 72h sobre los tickets en cola.');
+      var cx = 9.4, cw = 3.5, ch = 1.18, gy = 0.13, y = 1.45;
+      var slaEspera = function (cl) {
+        if (!cl || !cl.n) return 'sin tickets en cola';
+        var bk = cl.buckets || { b8: 0, b24: 0, bMas: 0 }, n24 = bk.b8 + bk.b24, n72 = bk.bMas;
+        return 'SLA ≤ 24h: ' + pct(n24 / cl.n) + ' (' + miles(n24) + ')\nSLA > 72h: ' + pct(n72 / cl.n) + ' (' + miles(n72) + ')';
+      };
+      card(s, cx, y, cw, ch, { label: 'En cola', chip: a, value: miles(CA.n), unit: 'tickets (' + pct(CA.pct) + ')', sub: 'de ' + miles(G[a].creados) + ' tickets creados en el período', size: 20 });
+      card(s, cx, y + (ch + gy), cw, ch, { label: 'En cola', chip: b, value: miles(CB.n), unit: 'tickets (' + pct(CB.pct) + ')', sub: 'de ' + miles(G[b].creados) + ' tickets creados en el período', size: 20 });
+      card(s, cx, y + 2 * (ch + gy), cw, ch, { label: 'Mediana de espera', chip: a, value: CA.n ? fmtD(CA.mediana) : '-', size: 18, sub: slaEspera(CA) });
+      card(s, cx, y + 3 * (ch + gy), cw, ch, { label: 'Mediana de espera', chip: b, value: CB.n ? fmtD(CB.mediana) : '-', size: 18, sub: slaEspera(CB) });
+    }
+    var slaL = Number(R.slaHoras) || 24;
+    var leyP = [];
+    if (mKeys.indexOf('moda') >= 0) leyP.push('Moda: tiempo más repetido (2 o más tickets), redondeado a la hora; si hay empate, menor - mayor');
+    if (mKeys.indexOf('prom') >= 0) leyP.push('Promedio de los tickets resueltos o cerrados');
+    if (mKeys.indexOf('mediana') >= 0) leyP.push('Mediana: tiempo central de los tickets resueltos o cerrados (la mitad se resolvió en menos)');
+    if (mKeys.indexOf('p85') >= 0) leyP.push('P85: el 85% se resolvió en este tiempo o menos');
+    if (mKeys.indexOf('p90') >= 0) leyP.push('P90: el 90% se resolvió en este tiempo o menos');
+    if (mKeys.indexOf('p95') >= 0) leyP.push('P95: el 95% se resolvió en este tiempo o menos');
+    if (mKeys.indexOf('sla') >= 0) leyP.push('SLA ≤ ' + slaL + 'h: % de tickets resueltos en ' + slaL + ' horas o menos');
+    if (mKeys.indexOf('iqr') >= 0) leyP.push('IQR: Q3 − Q1');
+    if (mKeys.indexOf('desv') >= 0) leyP.push('Desv. Est.: desviación estándar');
+    if (mKeys.indexOf('outliers') >= 0) leyP.push('Outliers: > Q3 + 1,5·IQR');
+    if (mKeys.indexOf('buckets') >= 0) leyP.push('Rangos: ≤8h (Mesa Trabajo), 8-24h (Objetivo), 24-48h (Aceptable), 48-72h (Límite legal), >72h (Compensación)');
+    var leyenda = leyP.join(' · ') + (leyP.length ? '.' : '');
+    var leyendaGrupo = leyenda + ' Grupo: uno por ticket. Si la última línea es Cobranzas Masivas, Cobranzas Masivas; si no, la última línea que esté en la lista de grupos del reporte; si ninguna está, la última línea.';
+
+    /* ---------- Canal de creación (barras 100 % apiladas con porcentajes) ---------- */
+    function barra100(s, x, y, w, h, titulo, partes, decimales) {
+      var tot = partes.reduce(function (a, p) { return a + p.n; }, 0) || 1;
+      var fmt = function (v) { return (Math.round(v * Math.pow(10, decimales)) / Math.pow(10, decimales)).toLocaleString('es-VE', { minimumFractionDigits: decimales, maximumFractionDigits: decimales }) + '%'; };
+      txt(s, titulo, { x: x + 0.05, y: y, w: w, h: 0.28, fontSize: 10, bold: true });
+      if (partes.some(function (p) { return p.n / tot < 0.06; })) { // segmentos muy delgados: porcentajes visibles sobre la barra
+        txt(s, [{ text: fmt(100 * partes[0].n / tot), options: { bold: true, color: partes[0].color, fontSize: 14 } }, { text: '  ' + partes[0].label, options: { color: C.ink, fontSize: 9 } }], { x: x + 0.1, y: y + 0.3, w: w / 2, h: 0.3, valign: 'middle' });
+        txt(s, [{ text: partes[1].label + '  ', options: { color: C.ink, fontSize: 9 } }, { text: fmt(100 * partes[1].n / tot), options: { bold: true, color: partes[1].color, fontSize: 14 } }], { x: x + w / 2, y: y + 0.3, w: w / 2 - 0.1, h: 0.3, align: 'right', valign: 'middle' });
+        y += 0.3; h -= 0.3;
+      }
+      s.addChart(pptx.ChartType.bar, partes.map(function (p) { var v = 100 * p.n / tot; return { name: p.label + ' · ' + fmt(v) + ' (' + miles(p.n) + ')', labels: [titulo], values: [Math.round(v * Math.pow(10, decimales)) / Math.pow(10, decimales)] }; }), {
+        x: x, y: y + 0.3, w: w, h: h - 0.3, barDir: 'bar', barGrouping: 'percentStacked', chartColors: partes.map(function (p) { return p.color; }), showValue: partes.every(function (p) { return p.n / tot >= 0.06; }),
+        dataLabelFormatCode: decimales ? '0.0"%"' : '0"%"', dataLabelColor: C.white, dataLabelFontSize: 11, dataLabelFontBold: true, dataLabelFontFace: FONT,
+        showLegend: true, legendPos: 'b', legendFontFace: FONT, legendFontSize: 9, catAxisHidden: true, valAxisHidden: true, valGridLine: { style: 'none' }, catGridLine: { style: 'none' }, barGapWidthPct: 30
+      });
+    }
+    function notaGestion(s, x, y, w, h) {
+      var Gs = F.irSGU.gestion, pc = function (n, d) { return d ? pct(n / d) : '-'; };
+      box(s, x, y, w, h);
+      var T = function (t) { return { text: t, options: { bold: true, color: C.purple, fontSize: 12.5, breakLine: true, paraSpaceBefore: 9 } }; };
+      var S = function (t) { return { text: t, options: { bold: true, color: C.hot, fontSize: 8.5, breakLine: true, paraSpaceBefore: 6 } }; };
+      var Li = function (a, b) { return [{ text: a + ': ', options: { bold: true, color: C.ink, fontSize: 10 } }, { text: b, options: { color: C.ink, fontSize: 10, breakLine: true, paraSpaceBefore: 2 } }]; };
+      var esc = Gs.escPIA === null ? 'sin dato (vuelva a cargar el GLPI con la columna "Asignado a - Técnico")' : pc(Gs.escPIA, Gs.sgu) + ' de los tickets SGU (' + miles(Gs.escPIA) + ' de ' + miles(Gs.sgu) + ')';
+      var runs = [T('GESTIÓN PIA'), S('GENERAN TICKET')]
+        .concat(Li('Creados', pc(Gs.pia, Gs.sgu) + ' de los tickets SGU (' + miles(Gs.pia) + ' de ' + miles(Gs.sgu) + ')'))
+        .concat(Li('Escalados', esc))
+        .concat([S('NO GENERAN TICKET')])
+        .concat(Li('Resueltos en 1er. contacto', miles(F.fcr.n) + ' casos'))
+        .concat(Li('Estatus de un reporte', miles(F.estatus) + ' casos'))
+        .concat([T('GESTIÓN OTRAS UNIDADES')])
+        .concat(Li('Creados', pc(Gs.otras, Gs.sgu) + ' de los tickets SGU (' + miles(Gs.otras) + ' de ' + miles(Gs.sgu) + ')'))
+        .concat(Li('Escalados a Contratista San Agustín', pc(Gs.escCSA, Gs.otras) + ' de los tickets (' + miles(Gs.escCSA) + ' de ' + miles(Gs.otras) + ')'))
+        .concat(Li('Escalados a otras unidades', pc(Gs.escOtrasU, Gs.otras) + ' de los tickets (' + miles(Gs.escOtrasU) + ' de ' + miles(Gs.otras) + ')'));
+      runs[0].options.paraSpaceBefore = 0;
+      txt(s, runs, { x: x + 0.14, y: y + 0.08, w: w - 0.28, h: h - 0.16, valign: 'top', fit: 'shrink', fontFace: FONT });
+    }
+    function laminaCanal() {
+      var s = base('ATC · Canal de creación de casos SGU - GLPI');
+      var cw = 4.0, x0 = 0.45, gx = 0.17;
+      card(s, x0, 1.45, cw, 1.4, { label: 'Creados por el PIA', chip: 'pia', value: pct(G.sgu.creados ? G.pia.creados / G.sgu.creados : null), unit: E.tickets(G.pia.creados), sub: 'de los ' + miles(G.sgu.creados) + ' tickets SGU\n' + miles(G.pia.creados) + ' fueron creados en PIA' });
+      card(s, x0 + cw + gx, 1.45, cw, 1.4, { label: 'Creados en otros canales', chip: 'otras', value: pct(G.sgu.creados ? G.otras.creados / G.sgu.creados : null), unit: E.tickets(G.otras.creados), sub: 'de los ' + miles(G.sgu.creados) + ' tickets SGU en GLPI' });
+      card(s, x0 + 2 * (cw + gx), 1.45, cw, 1.4, { label: 'Reincidencia de clientes FTTH', chip: 'sgu', value: miles(G.sgu.reinc.abonados), unit: 'Abonados · ' + miles(G.sgu.reinc.tickets) + ' tickets', sub: 'clientes con 2 o más tickets FTTH en SGU' });
+      barra100(s, 0.4, 3.05, 8.6, 1.75, 'Tickets SGU por canal de creación', [{ label: L.pia, n: G.pia.creados, color: C.hot }, { label: L.otras, n: G.otras.creados, color: C.purple }], 0);
+      barra100(s, 0.4, 4.95, 8.6, 1.75, 'Peso de San Agustín en el total país', [{ label: L.sgu, n: G.sgu.creados, color: C.hot }, { label: 'Resto del país', n: G.pais.creados, color: C.purple }], 1);
+      notaGestion(s, 9.3, 3.05, 3.6, 3.65);
+    }
+
+    /* ---------- 7-8. Productividad ---------- */
+    function filasProd(a, b, conEstatus) {
+      return R.productividad.filter(function (r) { return conEstatus || !r.estatus; }).map(function (r) {
+        var c = function (v) { return v === null || v === undefined ? '' : E.tickets(v); };
+        return { total: r.total, cells: [r.label, c(r[a].creados), c(r[a].solucionados), c(r[b].creados), c(r[b].solucionados)] };
+      });
+    }
+    function laminaProdPIA() {
+      var s = base('ATC · Productividad del punto: PIA vs. otras unidades');
+      var h = segHead('pia', 'otras', 'Categoría', ['Creados', 'Solucionados']);
+      tabla(s, { title: 'Productividad por categoría', head1: h.head1, head2: h.head2, rows: filasProd('pia', 'otras', true), x: 0.4, y: 1.45, w: 7.3, colW: [2.9, 1.1, 1.1, 1.1, 1.1], h: 5.3, maxRowH: 0.3 });
+      var cats = R.productividad.filter(function (r) { return !r.estatus && !r.total; });
+      txt(s, 'Tickets creados por categoría', { x: 7.95, y: 1.45, w: 5, h: 0.28, fontSize: 10, bold: true });
+      s.addChart(pptx.ChartType.bar, [
+        { name: L.pia, labels: cats.map(function (r) { return E.catCorta(r.label); }), values: cats.map(function (r) { return r.pia.creados; }) },
+        { name: L.otras, labels: cats.map(function (r) { return E.catCorta(r.label); }), values: cats.map(function (r) { return r.otras.creados; }) }
+      ], {
+        x: 7.85, y: 1.75, w: 5.1, h: 5.0, barDir: 'bar', barGrouping: 'stacked', chartColors: [C.hot, C.purple], showValue: true, dataLabelColor: C.white, dataLabelFontSize: 7, dataLabelFontFace: FONT,
+        catAxisLabelFontSize: 8, catAxisLabelFontFace: FONT, catAxisLabelColor: C.ink, catAxisOrientation: 'maxMin', valAxisHidden: true, valGridLine: { style: 'none' },
+        showLegend: true, legendPos: 'b', legendFontFace: FONT, legendFontSize: 8, barGapWidthPct: 45
+      });
+    }
+    function laminaProdSGU() {
+      var s = base('ATC · Productividad: SGU vs. resto del país');
+      var h = segHead('sgu', 'pais', 'Categoría', ['Creados', 'Solucionados']);
+      tabla(s, { title: 'Productividad por categoría', head1: h.head1, head2: h.head2, rows: filasProd('sgu', 'pais', false), x: 0.4, y: 1.45, w: 8.75, colW: [3.35, 1.35, 1.35, 1.35, 1.35], h: 5.3, maxRowH: 0.32 });
+      var cx = 9.4, cw = 3.5, ch = 1.18, gy = 0.13, y = 1.45;
+      var fila = function (lab) { return R.productividad.filter(function (r) { return r.label === lab; })[0]; };
+      card(s, cx, y, cw, ch, { label: '% solucionado', chip: 'sgu', value: pct(G.sgu.pctSol), unit: miles(G.sgu.solucionados) + ' de ' + miles(G.sgu.creados), size: 20 });
+      card(s, cx, y + (ch + gy), cw, ch, { label: '% solucionado', chip: 'pais', value: pct(G.pais.pctSol), unit: miles(G.pais.solucionados) + ' de ' + miles(G.pais.creados), size: 20 });
+      [['FTTH > Sin conexión', 'Sin conexión'], ['FTTH > Intermitencias', 'Intermitencias']].forEach(function (p, i) {
+        var r = fila(p[0]); if (!r) return;
+        card(s, cx, y + (2 + i) * (ch + gy), cw, ch, { label: p[1], chip: 'sgu', value: miles(r.sgu.creados), unit: 'creados · ' + pct(r.sgu.creados ? r.sgu.solucionados / r.sgu.creados : null) + ' solucionado', size: 20, sub: 'País: ' + miles(r.pais.creados) + ' creados · ' + pct(r.pais.creados ? r.pais.solucionados / r.pais.creados : null) + ' solucionado' });
+      });
+    }
+
+    /* ---------- 9. Reincidencias ---------- */
+    var RI = R.reincidencia;
+    function laminaReinc(gen) {
+      var RI = gen ? R.reincidenciaGeneral : R.reincidencia;
+      var s = base(gen ? 'ATC · Reincidencias de clientes · todas las categorías' : 'ATC · Reincidencias de clientes FTTH');
+      card(s, 0.45, 1.45, 2.4, 1.15, { label: 'Abonados', chip: 'sgu', value: miles(RI.abonados), size: 24 });
+      card(s, 3.0, 1.45, 2.4, 1.15, { label: 'Tickets', chip: 'sgu', value: miles(RI.tickets), size: 24, sub: pct(RI.pct) + ' de ' + miles(RI.ftth) + ' seleccionados' });
+      txt(s, gen ? 'Reincidente: mismo cliente ("Nombre Cliente" de GLPI) con 2 o más tickets de cualquier categoría en SGU durante el período, sin excepción.' : 'Reincidente: mismo cliente ("Nombre Cliente" de GLPI) con 2 o más tickets FTTH en SGU durante el período. No cuenta nada de Cobranzas Masivas' + (R.reincExcluidas.filter(function (c) { return !/cobranzas masivas/i.test(c); }).length ? ' ni ' + R.reincExcluidas.filter(function (c) { return !/cobranzas masivas/i.test(c); }).map(function (c) { return E.catCorta(c).toLowerCase(); }).join(', ') : '') + '.', { x: 0.45, y: 2.68, w: 4.95, h: 0.56, fontSize: 8.5, color: C.muted });
+      var cats = Object.keys(RI.porCategoria).sort(function (x, y) { return RI.porCategoria[y] - RI.porCategoria[x]; }).slice(0, 10);
+      txt(s, 'Categorías de los tickets reincidentes', { x: 0.45, y: 3.3, w: 5, h: 0.28, fontSize: 10, bold: true });
+      if (cats.length) s.addChart(pptx.ChartType.bar, [{ name: 'Tickets', labels: cats, values: cats.map(function (c) { return RI.porCategoria[c]; }) }], {
+        x: 0.35, y: 3.6, w: 5.1, h: 3.2, barDir: 'bar', chartColors: [C.purple], showValue: true, dataLabelColor: C.ink, dataLabelFontSize: 8, dataLabelFontFace: FONT, dataLabelPosition: 'outEnd',
+        catAxisLabelFontSize: 8, catAxisLabelFontFace: FONT, catAxisLabelColor: C.ink, catAxisOrientation: 'maxMin', valAxisHidden: true, valGridLine: { style: 'none' }, barGapWidthPct: 45
+      });
+      var top = RI.detalle[0], dePIA = 0;
+      RI.detalle.forEach(function (d) { d.tickets.forEach(function (t) { if (t.pia) dePIA++; }); });
+      var principal = cats[0];
+      var hall = [
+        principal ? principal + ' concentra ' + miles(RI.porCategoria[principal]) + ' de los ' + miles(RI.tickets) + ' tickets reincidentes (' + pct(RI.porCategoria[principal] / RI.tickets) + ').' : 'Sin reincidencias en el período.',
+        top ? top.nombre + ' (cuenta ' + top.cuenta + ') es el abonado con más tickets: ' + top.tickets.length + ' (' + top.categorias.join(', ') + ').' : '',
+        miles(dePIA) + ' de los ' + miles(RI.tickets) + ' tickets reincidentes los creó el PIA (' + pct(RI.tickets ? dePIA / RI.tickets : null) + '); el resto, otras unidades.'
+      ];
+      txt(s, 'Hallazgos', { x: 5.9, y: 1.45, w: 6, h: 0.3, fontSize: 11, bold: true });
+      hall = hall.filter(Boolean);
+      hall.forEach(function (hx, i) {
+        var y = 1.85 + i * 1.45;
+        s.addShape(pptx.ShapeType.roundRect, { x: 5.9, y: y, w: 0.42, h: 0.42, rectRadius: 0.21, fill: { color: C.purple }, line: { color: C.white, width: 0 } });
+        txt(s, String(i + 1), { x: 5.9, y: y, w: 0.42, h: 0.42, fontSize: 12, bold: true, color: C.white, align: 'center', valign: 'middle' });
+        box(s, 6.45, y - 0.08, 6.45, 1.0);
+        txt(s, hx, { x: 6.62, y: y - 0.08, w: 6.15, h: 1.0, fontSize: 10, valign: 'middle' });
+      });
+    }
+
+    /* ---------- 10. Detalle de reincidencias (2 columnas, se reparte en más láminas si hace falta) ---------- */
+    function laminaDetalleReinc(gen) {
+      var RI = gen ? R.reincidenciaGeneral : R.reincidencia;
+      var LINE = 0.155, CAP = 5.0; // alto disponible por columna (pulgadas)
+      function alto(d) { return Math.max(d.tickets.length, d.categorias.length) * LINE + 0.08; }
+      var cols = [], cur = [], h = 0;
+      RI.detalle.forEach(function (d) { var a = alto(d); if (h + a > CAP && cur.length) { cols.push(cur); cur = []; h = 0; } cur.push(d); h += a; });
+      if (cur.length) cols.push(cur);
+      if (!cols.length) cols.push([]);
+      // equilibrar dos columnas cuando caben en una lámina
+      if (cols.length === 2 || cols.length === 1) {
+        var all = RI.detalle, total = all.reduce(function (a, d) { return a + alto(d); }, 0), acc = 0, k = 0;
+        while (k < all.length && acc + alto(all[k]) <= total / 2 + 0.01) { acc += alto(all[k]); k++; }
+        if (total <= 2 * CAP) cols = [all.slice(0, k), all.slice(k)];
+      }
+      var paginas = Math.max(1, Math.ceil(cols.length / 2));
+      for (var p = 0; p < paginas; p++) {
+        var s = base((gen ? 'ATC · Detalle de reincidencias · todas las categorías' : 'ATC · Detalle de reincidencias FTTH') + (paginas > 1 ? '  (' + (p + 1) + '/' + paginas + ')' : ''));
+        [cols[p * 2], cols[p * 2 + 1]].forEach(function (lista, ci) {
+          if (!lista) return;
+          var rows = lista.map(function (d) { return { bold: true, cells: [d.nombre, d.cuenta, d.categorias.join('\n'), d.tickets.map(function (t) { return t.id; }).join('\n')] }; });
+          if (!rows.length) rows = [{ cells: ['Sin reincidencias en el período', '', '', ''] }];
+          var hs = [0.26, 0.26].concat(lista.map(alto));
+          if (!lista.length) hs.push(0.3);
+          tabla(s, { title: gen ? 'Clientes reincidentes · todas las categorías · SGU total' : 'Clientes reincidentes FTTH · SGU total', head1: [{ text: 'Cliente', o: { align: 'left' } }, { text: 'Cuenta' }, { text: 'Categorías', o: { align: 'left' } }, { text: 'Tickets' }], rows: rows,
+            x: 0.4 + ci * 6.33, y: 1.45, w: 6.13, colW: [2.35, 0.75, 2.13, 0.9], rowHs: hs, fontSize: 7.5 });
+        });
+      }
+    }
+
+    /* ---------- Clientes de SGU que reinciden: todas las categorías / solo FTTH / FTTH sin cobranzas ni tesorería ---------- */
+    function laminaClientesReinc(A) {
+      var LINE = 0.148, CAP = 5.05;
+      var alto = function (c) { return c.tickets.length * LINE + 0.05; };
+      var pags = [], cur = [], h = 0;
+      A.filas.forEach(function (c) { var a = alto(c); if (h + a > CAP && cur.length) { pags.push(cur); cur = []; h = 0; } cur.push(c); h += a; });
+      if (cur.length || !pags.length) pags.push(cur);
+      pags.forEach(function (lista, p) {
+        var s = base('ATC · Clientes que reinciden en SGU · ' + A.titulo + (pags.length > 1 ? '  (' + (p + 1) + '/' + pags.length + ')' : ''));
+        var col = function (c, f) { return c.tickets.map(f).join('\n'); };
+        var rows = lista.map(function (c) { return { cells: [c.nombre, col(c, function (t) { return t.id; }), col(c, function (t) { return E.catCorta(t.categoria); }), col(c, function (t) { return t.fecha + ' ' + t.hora; })] }; });
+        var hs = [0.28].concat(lista.map(alto));
+        if (!rows.length) { rows = [{ cells: ['Ningún cliente con 2 o más tickets en el período', '', '', ''] }]; hs.push(0.3); }
+        tabla(s, { title: A.titulo + ' · SGU total · ordenado por cliente y número de ticket', head1: [{ text: 'Cliente', o: { align: 'left' } }, { text: 'Ticket' }, { text: 'Motivo (categoría)', o: { align: 'left' } }, { text: 'Fecha de contacto' }], rows: rows,
+          x: 0.4, y: 1.45, w: 8.75, colW: [3.0, 0.95, 3.1, 1.7], rowHs: hs, fontSize: 7 });
+        var cx = 9.4, cw = 3.5, ch = 1.18, gy = 0.13, y = 1.45;
+        card(s, cx, y, cw, ch, { label: 'Reincidencia de clientes', chip: 'sgu', value: pct(A.pct), size: 22, sub: 'por cada 100 clientes, ' + (A.pct === null ? 0 : Math.round(A.pct * 100)) + ' reinciden' });
+        card(s, cx, y + (ch + gy), cw, ch, { label: 'Clientes que reinciden', chip: 'sgu', value: miles(A.reincidentes), size: 20, sub: 'con 2 o más tickets · ' + miles(A.ticketsReinc) + ' tickets' });
+        card(s, cx, y + 2 * (ch + gy), cw, ch, { label: 'Clientes atendidos', chip: 'sgu', value: miles(A.clientes), size: 20, sub: 'clientes distintos con ticket SGU' });
+        card(s, cx, y + 3 * (ch + gy), cw, ch, { label: 'Tickets del alcance', chip: 'sgu', value: miles(A.tickets), size: 20, sub: A.sinNombre ? miles(A.sinNombre) + ' sin nombre de cliente (no cuentan)' : 'todos con nombre de cliente' });
+        foot(s, A.def + ' Cliente: "Nombre Cliente" de GLPI (sin acentos ni signos). Reincide: 2 o más tickets en el período. % = clientes que reinciden ÷ clientes distintos. No pasa por la revisión de cédulas y contratos del indicador de reincidencia.');
+      });
+    }
+
+    /* ---------- 11-12. Grupo técnico ---------- */
+    function laminaGrupo(a, b, titulo) {
+      var s = base(titulo);
+      var h = segHead(a, b, 'Grupo técnico', mCols);
+      var rows = R.tiempoGrupo.map(function (r) { return { total: r.total, bold: r.negrita, cells: [r.label].concat(mVals(r[a]), mVals(r[b])) }; });
+      tabla(s, { title: 'Tiempo de resolución por grupo técnico', head1: h.head1, head2: h.head2, rows: rows, x: 0.4, y: 1.45, w: 8.75, colW: mColW(2, 8.75), fontSize: mFontSize(2), h: 5.3, maxRowH: 0.33 });
+      foot(s, leyendaGrupo);
+      var cx = 9.4, cw = 3.5, ch = 1.18, gy = 0.13, y = 1.45;
+      R.tiempoGrupo.filter(function (r) { return r.negrita; }).slice(0, 4).forEach(function (r, i) {
+        card(s, cx, y + i * (ch + gy), cw, ch, { label: r.label, chip: a, value: r[a].n ? fmtD(r[a].prom) : '-', size: 18, sub: L[b] + ': ' + (r[b].n ? fmtD(r[b].prom) : '-') + ' · ' + miles(r[a].n) + ' vs. ' + miles(r[b].n) + ' tickets' });
+      });
+    }
+
+    /* ---------- Resolución por día: en el día, en la semana, hasta la fecha y semana vs. día ---------- */
+    function resTabla(s, a, b, cols, fila, total, titulo) {
+      var head1 = [{ text: 'Día', o: { rowspan: 2 } }, { text: 'Fecha', o: { rowspan: 2 } }, { text: R.etiquetasLargas[a], o: { colspan: cols.length } }, { text: R.etiquetasLargas[b], o: { colspan: cols.length } }];
+      var head2 = cols.concat(cols).map(function (c) { return { text: c }; });
+      var RA = G[a].resolucion, RB = G[b].resolucion;
+      var rows = RA.filas.map(function (f, i) { return { cells: [f.dia, f.fecha.slice(0, 5)].concat(fila(f), fila(RB.filas[i])) }; });
+      rows.push({ total: true, cells: [total, ''].concat(fila(RA.total), fila(RB.total)) });
+      return tabla(s, { title: titulo, head1: head1, head2: head2, rows: rows, x: 0.4, y: 1.4, w: 12.5, colW: [1.0, 0.7].concat(new Array(cols.length * 2).fill(10.8 / (cols.length * 2))), rowH: 0.255, fontSize: 8 });
+    }
+    function resGrafico(s, a, y, titulo, series, tipo) {
+      var RA = G[a].resolucion, lab = RA.filas.map(function (f) { return f.dia.slice(0, 3) + ' ' + f.fechaCorta; });
+      txt(s, titulo + ' · ' + L[a], { x: 0.45, y: y, w: 7.8, h: 0.26, fontSize: 9.5, bold: true });
+      var linea = tipo === 'line';
+      s.addChart(linea ? pptx.ChartType.line : pptx.ChartType.bar, series.map(function (x) { return { name: x.name, labels: lab, values: RA.filas.map(x.v) }; }), Object.assign({
+        x: 0.35, y: y + 0.24, w: 7.9, h: 6.85 - y - 0.24, chartColors: series.map(function (x) { return x.color; }), showValue: true, dataLabelFontSize: 7, dataLabelColor: C.ink, dataLabelFontFace: FONT,
+        catAxisLabelFontSize: 7, catAxisLabelFontFace: FONT, catAxisLabelColor: C.ink, valAxisHidden: true, valGridLine: { style: 'none' }, showLegend: true, legendPos: 'r', legendFontFace: FONT, legendFontSize: 8
+      }, linea ? { lineSize: 2, lineDataSymbol: 'circle', lineDataSymbolSize: 6, dataLabelPosition: 't', dataLabelFormatCode: series[0].fmt || 'General' } : { barDir: 'col', barGrouping: 'clustered', dataLabelPosition: 'outEnd', barGapWidthPct: 60 }));
+    }
+    function resTarjetas(s, y, items) {
+      var mw = 2.2, mh = (6.85 - y - 0.1) / 2 - 0.06;
+      items.forEach(function (m, i) { card(s, 8.45 + (i % 2) * (mw + 0.12), y + Math.floor(i / 2) * (mh + 0.12), mw, mh, { label: m.label, chip: m.g, chipLabel: CORTO[m.g], value: m.value, size: 16, sub: m.sub }); });
+    }
+    var sem2 = function () { return R.semanaModo === 2; };
+    var notaOp2 = function () { return sem2() ? ' Opción 2: la semana incluye los tickets de la semana pasada resueltos en la semana en menos de 72 horas laborales (lunes a sábado 8:00–20:00); se suman a los abiertos desde el primer día.' : ''; };
+    var c4 = function (k) { return function (f) { var x = f[k]; return [miles(x.ab), miles(x.res), miles(x.pend), pct(x.pct)]; }; };
+
+    function laminaResDia(a, b, titulo) {
+      var s = base(titulo);
+      var yEnd = resTabla(s, a, b, ['Abiertos en el día', 'Resueltos en el día', 'Pendientes del día', '% resueltos en el día'], c4('d'), 'Total semanal', 'Resueltos en el día: abiertos y solucionados el mismo día · ' + R.ventana.desde.slice(0, 5) + ' al ' + R.ventana.hasta.slice(0, 5));
+      var y = yEnd + 0.12;
+      resGrafico(s, a, y, 'Abiertos vs. resueltos en el día', [{ name: 'Abiertos', color: C.lilac, v: function (f) { return f.d.ab; } }, { name: 'Resueltos el mismo día', color: C.purple, v: function (f) { return f.d.res; } }]);
+      var pico = G[a].resolucion.filas.reduce(function (m, f) { return !m || f.d.ab > m.d.ab ? f : m; }, null);
+      resTarjetas(s, y, [
+        { g: a, label: '% en el día', value: pct(G[a].resolucion.total.d.pct), sub: miles(G[a].resolucion.total.d.res) + ' de ' + miles(G[a].resolucion.total.d.ab) + ' abiertos' },
+        { g: b, label: '% en el día', value: pct(G[b].resolucion.total.d.pct), sub: miles(G[b].resolucion.total.d.res) + ' de ' + miles(G[b].resolucion.total.d.ab) + ' abiertos' },
+        { g: a, label: 'Día pico', value: pico ? pico.dia.slice(0, 3) + ' ' + pico.fechaCorta : '-', sub: pico ? miles(pico.d.ab) + ' abiertos · ' + pct(pico.d.pct) + ' resueltos' : '' },
+        { g: a, label: 'Pendientes', value: miles(G[a].resolucion.total.d.pend), sub: 'no resueltos el mismo día' }
+      ]);
+      foot(s, 'Abiertos en el día: creados ese día (00:00 a 23:59) · Resueltos en el día: creados y solucionados ese mismo día · Pendientes: creados ese día sin solución al cierre del día · Total semanal: suma de los 8 días.');
+    }
+    function laminaResSemana(a, b, titulo) {
+      var s = base(titulo);
+      var yEnd = resTabla(s, a, b, ['Abiertos en la semana', 'Resueltos en la semana', 'Pendientes en la semana', '% resueltos en la semana'], c4('s'), 'Total semanal', 'Resueltos en la semana: acumulado desde el ' + R.ventana.desde.slice(0, 5) + ' a las 00:00' + (sem2() ? ' · opción 2 (+ semana pasada < 72 h)' : ''));
+      var y = yEnd + 0.12;
+      resGrafico(s, a, y, 'Acumulado de la semana', [{ name: 'Abiertos', color: C.lilac, v: function (f) { return f.s.ab; } }, { name: 'Resueltos', color: C.purple, v: function (f) { return f.s.res; } }]);
+      var T = function (g) { return G[g].resolucion.total.s; };
+      resTarjetas(s, y, [
+        { g: a, label: '% en la semana', value: pct(T(a).pct), sub: miles(T(a).res) + ' de ' + miles(T(a).ab) + ' abiertos' },
+        { g: b, label: '% en la semana', value: pct(T(b).pct), sub: miles(T(b).res) + ' de ' + miles(T(b).ab) + ' abiertos' },
+        { g: a, label: 'Pendientes', value: miles(T(a).pend), sub: 'aún sin solución' },
+        { g: b, label: 'Pendientes', value: miles(T(b).pend), sub: 'aún sin solución' }
+      ]);
+      foot(s, 'Cada día acumula desde el primer día de la semana (00:00) hasta las 23:59 de ese día: abiertos, resueltos hasta ese día y pendientes · Total semanal = último día.' + notaOp2());
+    }
+    function laminaResAcum(a, b, titulo) {
+      var s = base(titulo);
+      var desde = G[a].resolucion.desde;
+      var yEnd = resTabla(s, a, b, ['Abiertos hasta la fecha', 'Resueltos hasta la fecha', 'Pendientes hasta la fecha', '% resueltos hasta la fecha'], c4('h'), 'Total al ' + R.ventana.hasta.slice(0, 5), 'Resueltos hasta la fecha: acumulado desde el ' + desde.slice(0, 5) + ' (inicio del período)');
+      var y = yEnd + 0.12;
+      resGrafico(s, a, y, 'Acumulado del período', [{ name: 'Abiertos', color: C.lilac, v: function (f) { return f.h.ab; } }, { name: 'Resueltos', color: C.purple, v: function (f) { return f.h.res; } }]);
+      var T = function (g) { return G[g].resolucion.total.h; };
+      resTarjetas(s, y, [
+        { g: a, label: '% hasta la fecha', value: pct(T(a).pct), sub: miles(T(a).res) + ' de ' + miles(T(a).ab) + ' abiertos' },
+        { g: b, label: '% hasta la fecha', value: pct(T(b).pct), sub: miles(T(b).res) + ' de ' + miles(T(b).ab) + ' abiertos' },
+        { g: a, label: 'Pendientes', value: miles(T(a).pend), sub: 'aún sin solución' },
+        { g: b, label: 'Pendientes', value: miles(T(b).pend), sub: 'aún sin solución' }
+      ]);
+      foot(s, 'Cada día acumula desde el inicio del período (' + desde + ') hasta las 23:59 de ese día: abiertos, resueltos hasta ese día y pendientes · No cambia con la opción del indicador semanal.');
+    }
+    function laminaResSemDia(a, b, titulo) {
+      var s = base(titulo);
+      var head1 = [{ text: 'Día', o: { rowspan: 2 } }, { text: 'Fecha', o: { rowspan: 2 } }, { text: 'Abiertos', o: { colspan: 3 } }, { text: 'Resueltos', o: { colspan: 3 } }, { text: 'Pendientes', o: { colspan: 3 } }, { text: '% de resolución', o: { colspan: 2 } }];
+      var head2 = ['Ese día', 'De la semana, pendientes', 'Total', 'El mismo día', 'De la semana', 'Total del día', 'De ese día', 'De la semana', 'Total', 'Del día', 'De la semana'].map(function (c, k) { return { text: c, o: k === 2 || k === 5 || k === 8 ? { fill: { color: C.total } } : {} }; });
+      var n = function (v) { return v === null || v === undefined ? '-' : miles(v); };
+      var fila = function (x) { return [n(x.abDia), n(x.abSem), n(x.abTot), n(x.resDia), n(x.resSem), n(x.resTot), n(x.pendDia), n(x.pendSem), n(x.pendTot), pct(x.pctDia), pct(x.pctSem)]; };
+      var y = 1.4;
+      [a, b].forEach(function (g) {
+        var RG = G[g].resolucion;
+        var rows = RG.filas.map(function (f) { return { cells: [f.dia, f.fecha.slice(0, 5)].concat(fila(f.x)) }; });
+        rows.push({ total: true, cells: ['Total semanal', ''].concat(fila(RG.total.x)) });
+        y = tabla(s, { title: R.etiquetasLargas[g] + ' · ' + R.ventana.desde.slice(0, 5) + ' al ' + R.ventana.hasta.slice(0, 5) + (sem2() ? ' · opción 2 (+ semana pasada < 72 h)' : ''), head1: head1, head2: head2, rows: rows, colsTotal: [4, 7, 10], x: 0.4, y: y, w: 12.5, colW: [1.0, 0.7].concat(new Array(11).fill(10.8 / 11)), rowH: 0.205, fontSize: 7.5 }) + 0.14;
+      });
+      foot(s, 'Abiertos: los de ese día más los abiertos antes en la semana que seguían pendientes al empezar el día · Resueltos: el mismo día de su apertura + los de la semana resueltos ese día · Pendientes al cierre del día · % del día: resueltos el mismo día ÷ abiertos ese día · % de la semana: acumulado desde el primer día (00:00).' + notaOp2());
+    }
+
+    /* ---------- 13-14. Resolución en la jornada ---------- */
+    function laminaJornada(a, b, titulo) {
+      var s = base(titulo);
+      var cols = ['Abiertos', 'Pendientes', 'Resueltos', 'Pend. acum.', 'Resuelto acum.', '% en jornada'];
+      var head1 = [{ text: 'Día', o: { rowspan: 2 } }, { text: 'Fecha', o: { rowspan: 2 } }, { text: R.etiquetasLargas[a], o: { colspan: 6 } }, { text: R.etiquetasLargas[b], o: { colspan: 6 } }];
+      var head2 = cols.concat(cols).map(function (c) { return { text: c }; });
+      var JA = G[a].jornada, JB = G[b].jornada;
+      var fila = function (f) { return [miles(f.abiertos), miles(f.pendientes), miles(f.resueltos), miles(f.pendAcc), miles(f.resAcc), pct(f.pct)]; };
+      var filaArr = function (f) { return [miles(f.abiertos), miles(f.pendientes), '-', miles(f.pendAcc), '-', '-']; };
+      var rows = JA.filas.map(function (f, i) { return { cells: [f.dia, f.fecha.slice(0, 5)].concat(fila(f), fila(JB.filas[i])) }; });
+      if (JA.arrastre) rows.unshift({ cells: ['Sem. pasada', '< 72 h'].concat(filaArr(JA.arrastre), filaArr(JB.arrastre)) });
+      rows.push({ total: true, cells: ['Total semanal', ''].concat(fila(JA.total), fila(JB.total)) });
+      var yEnd = tabla(s, { title: 'Tickets abiertos y solucionados · ' + R.ventana.desde.slice(0, 5) + ' al ' + R.ventana.hasta.slice(0, 5), head1: head1, head2: head2, rows: rows, x: 0.4, y: 1.4, w: 12.5, colW: [1.0, 0.7].concat(new Array(12).fill(10.8 / 12)), rowH: 0.255, fontSize: 8 });
+      var ch0 = yEnd + 0.12;
+      txt(s, 'Abiertos vs. resueltos por día · ' + L[a], { x: 0.45, y: ch0, w: 7, h: 0.26, fontSize: 9.5, bold: true });
+      s.addChart(pptx.ChartType.bar, [
+        { name: 'Abiertos', labels: JA.filas.map(function (f) { return f.dia.slice(0, 3) + ' ' + f.fechaCorta; }), values: JA.filas.map(function (f) { return f.abiertos; }) },
+        { name: 'Resueltos', labels: JA.filas.map(function (f) { return f.dia.slice(0, 3) + ' ' + f.fechaCorta; }), values: JA.filas.map(function (f) { return f.resueltos; }) }
+      ], {
+        x: 0.35, y: ch0 + 0.24, w: 7.9, h: 6.85 - ch0 - 0.24, barDir: 'col', barGrouping: 'clustered', chartColors: [C.lilac, C.purple], showValue: true, dataLabelFontSize: 7, dataLabelColor: C.ink, dataLabelFontFace: FONT, dataLabelPosition: 'outEnd',
+        catAxisLabelFontSize: 7, catAxisLabelFontFace: FONT, catAxisLabelColor: C.ink, valAxisHidden: true, valGridLine: { style: 'none' }, showLegend: true, legendPos: 'r', legendFontFace: FONT, legendFontSize: 8, barGapWidthPct: 60
+      });
+      var mw = 2.2, mh = (6.85 - ch0 - 0.1) / 2 - 0.06;
+      [[a, 'Backlog', JA.total.pendAcc, (R.semanaModo === 2 ? 'de la semana y la semana pasada, aún sin solución' : 'abiertos en la semana aún sin solución')], [a, 'Resueltos', JA.total.resAcc, (R.semanaModo === 2 ? 'de la semana y de la semana pasada (< 72 h)' : 'abiertos y solucionados en la semana')], [b, 'Backlog', JB.total.pendAcc, (R.semanaModo === 2 ? 'de la semana y la semana pasada, aún sin solución' : 'abiertos en la semana aún sin solución')], [b, 'Resueltos', JB.total.resAcc, (R.semanaModo === 2 ? 'de la semana y de la semana pasada (< 72 h)' : 'abiertos y solucionados en la semana')]].forEach(function (m, i) {
+        card(s, 8.45 + (i % 2) * (mw + 0.12), ch0 + Math.floor(i / 2) * (mh + 0.12), mw, mh, { label: m[1], chip: m[0], chipLabel: CORTO[m[0]], value: miles(m[2]), size: 16, sub: m[3] });
+      });
+      foot(s, 'Abiertos: creados el día · Pendientes: creados el día y no resueltos ese día · Resueltos y Pend. acum.: solo tickets abiertos desde el inicio de la semana' + (R.semanaModo === 2 ? ', más los de la semana pasada solucionados en la semana en < 72 h laborales (fila Sem. pasada)' : '') + ' · % en jornada: creados y resueltos el mismo día ÷ creados.');
+    }
+
+    /* ---------- 15-16. Resueltos el mismo día ---------- */
+    function laminaMismoDia(a, b, titulo) {
+      var s = base(titulo);
+      var cols = ['Abiertos', 'Pendientes', 'Resueltos mismo día', 'Resueltos de esa semana', '% en jornada'];
+      var head1 = [{ text: 'Día', o: { rowspan: 2 } }, { text: 'Fecha', o: { rowspan: 2 } }, { text: R.etiquetasLargas[a], o: { colspan: 5 } }, { text: R.etiquetasLargas[b], o: { colspan: 5 } }];
+      var head2 = cols.concat(cols).map(function (c) { return { text: c }; });
+      var JA = G[a].jornada, JB = G[b].jornada;
+      var fila = function (f) { return [miles(f.abiertos), miles(f.pendientes), miles(f.mismoDia), miles(f.resSemana), pct(f.pct)]; };
+      var filaArr = function (f) { return [miles(f.abiertos), miles(f.pendientes), '-', '-', '-']; };
+      var rows = JA.filas.map(function (f, i) { return { cells: [f.dia, f.fecha.slice(0, 5)].concat(fila(f), fila(JB.filas[i])) }; });
+      if (JA.arrastre) rows.unshift({ cells: ['Sem. pasada', '< 72 h'].concat(filaArr(JA.arrastre), filaArr(JB.arrastre)) });
+      rows.push({ total: true, cells: ['Total semanal', ''].concat(fila(JA.total), fila(JB.total)) });
+      var yEnd = tabla(s, { title: 'Tickets abiertos y solucionados el mismo día', head1: head1, head2: head2, rows: rows, x: 0.4, y: 1.4, w: 8.75, colW: [0.95, 0.7].concat(new Array(10).fill(7.1 / 10)), rowH: 0.255, fontSize: 7.5 });
+      var gr = function (g) { var x = G[g].gestion; return { cells: [L[g], miles(x.abiertos), miles(x.resueltos), miles(x.cerrados), pct(x.pct)] }; };
+      var y2 = tabla(s, { title: 'Gestión en la última semana · ' + R.ventana.desde.slice(0, 5) + ' al ' + R.ventana.hasta.slice(0, 5), head1: [{ text: 'Grupo', o: { align: 'left' } }, { text: 'Abiertos' }, { text: 'Resueltos' }, { text: 'Cerrados' }, { text: '% en jornada' }], rows: [gr(a), gr(b)], x: 0.4, y: yEnd + 0.18, w: 8.75, colW: [2.75, 1.5, 1.5, 1.5, 1.5], rowH: 0.27, fontSize: 8.5 });
+      var cx = 9.4, cw = 3.5, ch = 1.22, gy = 0.13, y = 1.4;
+      card(s, cx, y, cw, ch, { label: 'Resueltos el mismo día', chip: a, value: pct(JA.total.pct), unit: miles(JA.total.mismoDia) + ' de ' + miles(JA.total.abiertosSemana), size: 20 });
+      card(s, cx, y + ch + gy, cw, ch, { label: 'Resueltos el mismo día', chip: b, value: pct(JB.total.pct), unit: miles(JB.total.mismoDia) + ' de ' + miles(JB.total.abiertosSemana), size: 20 });
+      var pico = JA.pico;
+      card(s, cx, y + 2 * (ch + gy), cw, ch, { label: 'Día pico', chip: a, value: pico ? pico.dia + ' ' + pico.fechaCorta : '-', size: 16, sub: pico ? miles(pico.abiertos) + ' tickets abiertos · ' + pct(pico.pct) + ' resueltos ese día' : '' });
+      var ma = JA.total.pct, mb = JB.total.pct;
+      note(s, cx, y + 3 * (ch + gy), cw, Math.max(0.9, y2 - (y + 3 * (ch + gy))), L[a] + ' resolvió el mismo día el ' + pct(ma) + ' de lo que abrió en la semana; ' + L[b] + ', el ' + pct(mb) + '.');
+      foot(s, '% en jornada: tickets creados y resueltos el mismo día ÷ tickets creados ese día. Resueltos de esa semana: abiertos desde el inicio de la semana' + (R.semanaModo === 2 ? ' (más los de la semana pasada en < 72 h laborales)' : '') + ' y solucionados ese día. Cerrados: con fecha de cierre dentro de la semana.');
+    }
+
+    /* ---------- desglose de "Otro" (solo el grupo SGU de la presentación) ---------- */
+    var OTRO = {
+      tiempoCategoria: { titulo: 'Tiempo de resolución por categoría', col: 'Categoría', cols: mCols, que: 'categorías' },
+      productividad: { titulo: 'Productividad por categoría', col: 'Categoría', cols: ['Creados', 'Solucionados'], que: 'categorías' },
+      tiempoGrupo: { titulo: 'Tiempo de resolución por grupo técnico', col: 'Grupo técnico', cols: mCols, que: 'grupos técnicos' }
+    };
+    function laminaOtro(kind, g) {
+      var def = OTRO[kind], d = R.otros[kind][g], tiempo = kind !== 'productividad';
+      var celdas = function (v) { return tiempo ? mVals(v) : [E.tickets(v.creados), E.tickets(v.solucionados)]; };
+      var filas = d.filas.map(function (r) { return { cells: [r.label].concat(celdas(r.v)) }; });
+      var POR = 17, paginas = Math.max(1, Math.ceil(filas.length / POR));
+      var totalTk = tiempo ? d.total.v.n : d.total.v.creados;
+      var base0 = tiempo ? G[g].solucionados : G[g].creados;
+      for (var p = 0; p < paginas; p++) {
+        var s = base('ATC · Desglose de "Otro": ' + def.titulo.charAt(0).toLowerCase() + def.titulo.slice(1) + (paginas > 1 ? '  (' + (p + 1) + '/' + paginas + ')' : ''));
+        var rows = filas.slice(p * POR, (p + 1) * POR);
+        if (!filas.length) rows = [{ cells: ['Sin tickets en "Otro"'].concat(def.cols.map(function () { return ''; })) }];
+        if (p === paginas - 1) rows.push({ total: true, cells: [d.total.label].concat(celdas(d.total.v)) });
+        tabla(s, { title: '"Otro" de ' + R.etiquetasLargas[g] + ' · ' + def.titulo.toLowerCase(), head1: [{ text: def.col, o: { rowspan: 2, align: 'left' } }, { text: R.etiquetasLargas[g], o: { colspan: def.cols.length } }], head2: def.cols.map(function (c) { return { text: c }; }),
+          rows: rows, x: 0.4, y: 1.45, w: 8.75, colW: tiempo ? mColW(1, 8.75) : [5.15, 1.6, 2.0], fontSize: tiempo ? mFontSize(1) : null, h: 5.3, maxRowH: 0.3 });
+        if (p > 0) continue;
+        var cx = 9.4, cw = 3.5;
+        card(s, cx, 1.45, cw, 1.3, { label: '"Otro"', chip: g, value: miles(totalTk), unit: tiempo ? 'tickets resueltos' : 'tickets creados', size: 22, sub: pct(base0 ? totalTk / base0 : null) + ' del total de ' + L[g] });
+        card(s, cx, 2.88, cw, 1.3, { label: 'Agrupa', chip: g, value: miles(d.filas.length), unit: d.filas.length === 1 ? def.que.replace(/s$/, '').replace('grupos técnicos', 'grupo técnico') : def.que, size: 22, sub: 'fuera de las ' + (kind === 'tiempoGrupo' ? R.cfg.grupos.length + ' de la tabla' : R.cfg.categorias.length + ' del reporte') });
+        if (d.filas[0]) card(s, cx, 4.31, cw, 1.3, { label: 'La más frecuente', chip: g, value: miles(tiempo ? d.filas[0].v.n : d.filas[0].v.creados), unit: (tiempo ? d.filas[0].v.n : d.filas[0].v.creados) === 1 ? 'ticket' : 'tickets', size: 22, sub: d.filas[0].label });
+        foot(s, tiempo ? (kind === 'tiempoGrupo' ? leyendaGrupo : leyenda) : 'Creados: todos los tickets del período · Solucionados: en estado Resuelto o Cerrado.');
+      }
+    }
+
+    /* ---------- orden de cada presentación ---------- */
+    var leyendaPais = leyenda + ' Se homologaron ' + miles(R.controles.homologadas.length) + ' tickets con ">" sobrante en la categoría (p. ej. "FTTH > Cambio de clave WiFi >").';
+    if (tipo === 'pia') {
+      paginaIndicadores('pia', 'otras', R.comparativos.pia_otras);
+      paginaIndicadores('pia', 'pais', R.comparativos.pia_pais);
+      laminaTiempo('pia', 'otras', 'ATC · Tiempo de resolución: PIA vs. otras unidades', leyenda, notaResolucion('pia', 'otras'));
+      laminaOtro('tiempoCategoria', 'pia');
+      laminaCanal();
+      laminaProdPIA();
+      laminaOtro('productividad', 'pia');
+      laminaReinc();
+      laminaDetalleReinc();
+      laminaReinc(true);
+      laminaDetalleReinc(true);
+      laminaGrupo('pia', 'otras', 'ATC · Grupo técnico: PIA vs. otras unidades');
+      laminaOtro('tiempoGrupo', 'pia');
+      laminaResDia('pia', 'otras', 'ATC · Resueltos en el día: PIA vs. otras');
+      laminaResSemana('pia', 'otras', 'ATC · Resueltos en la semana: PIA vs. otras');
+      laminaResAcum('pia', 'otras', 'ATC · Resueltos hasta la fecha: PIA vs. otras');
+      laminaResSemDia('pia', 'otras', 'ATC · Resueltos en la semana vs. en el día: PIA vs. otras');
+    } else {
+      paginaIndicadores('sgu', 'pais', R.comparativos.sgu_pais, true);
+      laminaMediana();
+      laminaTiempo('sgu', 'pais', 'ATC · Tiempo de resolución: SGU vs. resto del país', leyendaPais, notaBrecha('sgu', 'pais'));
+      laminaOtro('tiempoCategoria', 'sgu');
+      laminaCola('sgu', 'pais');
+      laminaCanal();
+      laminaProdSGU();
+      laminaOtro('productividad', 'sgu');
+      laminaReinc();
+      laminaDetalleReinc();
+      laminaReinc(true);
+      laminaDetalleReinc(true);
+      (R.clientesReinc || []).forEach(laminaClientesReinc);
+      laminaGrupo('sgu', 'pais', 'ATC · Grupo técnico: SGU vs. resto del país');
+      laminaOtro('tiempoGrupo', 'sgu');
+      laminaResDia('sgu', 'pais', 'ATC · Resueltos en el día: SGU vs. país');
+      laminaResSemana('sgu', 'pais', 'ATC · Resueltos en la semana: SGU vs. país');
+      laminaResAcum('sgu', 'pais', 'ATC · Resueltos hasta la fecha: SGU vs. país');
+      laminaResSemDia('sgu', 'pais', 'ATC · Resueltos en la semana vs. en el día: SGU vs. país');
+    }
+
+    /* numeración automática: n/total (se agrega al final, cuando ya se sabe cuántas láminas hay) */
+    slides.forEach(function (o) { o.s.addText('ATENCIÓN AL CLIENTE · ' + o.k + '/' + n, { x: 0.72, y: 0.4, w: 8, h: 0.28, fontFace: FONT, fontSize: 10, bold: true, color: C.hot, charSpacing: 1.5, margin: 0 }); });
+    return pptx;
+  }
+
+  var api = { build: build, COLORS: C };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.PIADeck = api;
+})(typeof window !== 'undefined' ? window : this);
